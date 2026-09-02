@@ -14,6 +14,8 @@ import (
 const (
 	serverAddr  string = ":8080"
 	upstreamURL string = "http://httpbin.org"
+
+	XForwardedFor string = "X-Forwarded-For"
 )
 
 func main() {
@@ -86,6 +88,13 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	newReq.URL = buildUpstreamURL(newReq.URL, p.upstreamURL)
 	newReq.RequestURI = ""
 	newReq.Host = p.upstreamURL.Host
+
+	clientIP, _, err := net.SplitHostPort(newReq.RemoteAddr)
+	if err == nil {
+		// Assuming this proxy is running on the edge. Ideally, we must check `X-Forwarded-For`
+		// and append the `RemoteAddr` if we're behind another proxy.
+		newReq.Header.Set(XForwardedFor, clientIP)
+	}
 
 	outDump, _ := httputil.DumpRequestOut(newReq, true)
 	log.Println(string(outDump))
