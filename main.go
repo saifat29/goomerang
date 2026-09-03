@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -16,6 +17,11 @@ const (
 	upstreamURL string = "http://httpbin.org"
 
 	XForwardedFor string = "X-Forwarded-For"
+	XCacheStatus  string = "X-Cache-Status"
+
+	CacheStatusHit    string = "HIT"
+	CacheStatusMiss   string = "MISS"
+	CacheStatusBypass string = "BYPASS"
 )
 
 func main() {
@@ -36,7 +42,9 @@ func main() {
 		IdleConnTimeout:     90 * time.Second,
 	}
 
-	reverseProxy := NewReverseProxy(parsedURL, transport)
+	cache := NewMemoryLRU(1<<30, 5*time.Minute)
+
+	reverseProxy := NewReverseProxy(parsedURL, transport, cache)
 
 	server := &http.Server{
 		Addr:         serverAddr,
@@ -57,11 +65,12 @@ func main() {
 type ReverseProxy struct {
 	upstreamURL *url.URL
 	transport   http.RoundTripper
+	cache       *MemoryLRU
 }
 
 // NewReverseProxy returns a new ReverseProxy with the provided upstream URL
 // and transport, if the transport is not provided, a default is used.
-func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper) *ReverseProxy {
+func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper, cache *MemoryLRU) *ReverseProxy {
 	if transport == nil {
 		transport = &http.Transport{
 			DialContext: (&net.Dialer{
@@ -76,14 +85,45 @@ func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper) *Reverse
 		}
 	}
 
+	if cache == nil {
+		cache = NewMemoryLRU(1<<30, 5*time.Minute)
+	}
+
 	return &ReverseProxy{
 		upstreamURL: upstreamURL,
 		transport:   transport,
+		cache:       cache,
 	}
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	newReq := r.Clone(r.Context())
+
+	cacheStatus := CacheStatusBypass
+
+	if serveFromCache(newReq) {
+		log.Println("serving from cache")
+		cacheKey := NewCacheKey(r)
+
+		if cachedRes := p.cache.Get(cacheKey); cachedRes != nil {
+			log.Println("cached response found")
+			copyHeaders(w.Header(), cachedRes.Headers)
+
+			w.Header().Set(XCacheStatus, CacheStatusHit)
+			w.WriteHeader(cachedRes.StatusCode)
+
+			if _, err := w.Write(cachedRes.Body); err != nil {
+				log.Printf("failed to write response: %v", err)
+				http.Error(w, "failed to write response", http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+		log.Println("not found in cache")
+		cacheStatus = CacheStatusMiss
+	} else {
+		log.Println("cache bypassed")
+	}
 
 	removeHopHeaders(newReq.Header)
 
@@ -103,7 +143,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	res, err := p.transport.RoundTrip(newReq)
 	if err != nil {
-		log.Printf("upstream server error:%v", err)
+		log.Printf("upstream server error: %v", err)
 		http.Error(w, "upstream server error", http.StatusInternalServerError)
 		return
 	}
@@ -112,13 +152,30 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outDumpRes, _ := httputil.DumpResponse(res, true)
 	log.Println(string(outDumpRes))
 
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		log.Printf("failed to read response body from upstream server: %v", err)
+		http.Error(w, "failed to read response body from upstream server", http.StatusInternalServerError)
+		return
+	}
+
 	removeHopHeaders(res.Header)
 	copyHeaders(w.Header(), res.Header)
 
+	if saveToCache(newReq, res) {
+		log.Println("caching response")
+
+		p.cache.Set(
+			NewCacheKey(r),
+			NewResponse(res.StatusCode, res.Header, resBody, 5*time.Minute),
+		)
+	}
+
+	w.Header().Set(XCacheStatus, cacheStatus)
 	w.WriteHeader(res.StatusCode)
 
-	if _, err := io.Copy(w, res.Body); err != nil {
-		log.Printf("failed to write response:%v", err)
+	if _, err := w.Write(resBody); err != nil {
+		log.Printf("failed to write response: %v", err)
 		http.Error(w, "failed to write response", http.StatusInternalServerError)
 		return
 	}
@@ -157,7 +214,7 @@ var hopHeaders = []string{
 // removeHopHeaders deletes hop-by-hop headers. Hop-by-hop headers are only for a single
 // connection between client and server, and must not be retransmitted upstream.
 func removeHopHeaders(header http.Header) {
-	for _, h := range header["Connection"] {
+	for _, h := range header.Values("Connection") {
 		for dirtyHeader := range strings.SplitSeq(h, ",") {
 			header.Del(strings.TrimSpace(dirtyHeader))
 		}
@@ -177,6 +234,46 @@ func copyHeaders(dst, src http.Header) {
 	}
 }
 
+func parseCacheCtrlHeader(header http.Header) []string {
+	var result []string
+
+	for _, values := range header.Values("Cache-Control") {
+		for _, value := range strings.Split(values, ",") {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+	}
+
+	return result
+}
+
+func serveFromCache(req *http.Request) bool {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return false
+	}
+
+	return true
+}
+
+func saveToCache(req *http.Request, res *http.Response) bool {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return false
+	}
+
+	cacheCtrlHeader := parseCacheCtrlHeader(res.Header)
+
+	if slices.Contains(cacheCtrlHeader, "private") ||
+		slices.Contains(cacheCtrlHeader, "no-cache") ||
+		slices.Contains(cacheCtrlHeader, "no-store") ||
+		res.Header.Get("Set-Cookie") != "" ||
+		req.Header.Get("Authorization") != "" {
+		return false
+	}
+
+	return true
+}
+
 // Response contains the response fields to be cached.
 type Response struct {
 	Headers    http.Header
@@ -185,6 +282,22 @@ type Response struct {
 	Size       int
 	TTL        time.Duration
 	AccessedAt time.Time
+}
+
+func NewResponse(code int, header http.Header, body []byte, ttl time.Duration) *Response {
+	bodyCopy := make([]byte, len(body))
+	copy(bodyCopy, body)
+
+	resp := &Response{
+		Headers:    header.Clone(),
+		Body:       bodyCopy,
+		StatusCode: code,
+		TTL:        ttl,
+		AccessedAt: time.Now().UTC(),
+	}
+	resp.Size = resp.SizeInBytes()
+
+	return resp
 }
 
 // Expired returns true if the Response has expired and must be removed.
