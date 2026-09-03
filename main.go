@@ -176,3 +176,41 @@ func copyHeaders(dst, src http.Header) {
 		}
 	}
 }
+
+// Response contains the response fields to be cached.
+type Response struct {
+	Headers    http.Header
+	Body       []byte
+	StatusCode int
+	Size       int
+	TTL        time.Duration
+	AccessedAt time.Time
+}
+
+// Expired returns true if the Response has expired and must be removed.
+func (rs *Response) Expired() bool {
+	if time.Now().UTC().After(rs.AccessedAt.Add(rs.TTL)) {
+		return true
+	}
+
+	return false
+}
+
+// SizeInBytes returns the size of cached response in bytes.
+// Only `Headers` and `Body` is considered for size calculation,
+// because the other fields (and struct padding) would comparitively
+// take insignificant space. This is a good enough solution.
+func (rs *Response) SizeInBytes() int {
+	size := 0
+
+	for key, values := range rs.Headers {
+		size += len(key)
+		for _, value := range values {
+			size += len(value)
+		}
+	}
+
+	size += cap(rs.Body)
+
+	return size
+}
