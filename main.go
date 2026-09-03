@@ -115,6 +115,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	removeHopHeaders(res.Header)
 	copyHeaders(w.Header(), res.Header)
 
+	w.WriteHeader(res.StatusCode)
+
 	if _, err := io.Copy(w, res.Body); err != nil {
 		log.Printf("failed to write response:%v", err)
 		http.Error(w, "failed to write response", http.StatusInternalServerError)
@@ -173,5 +175,4 @@ func copyHeaders(dst, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
-
 }
