@@ -85,6 +85,8 @@ func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper) *Reverse
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	newReq := r.Clone(r.Context())
 
+	removeHopHeaders(newReq.Header)
+
 	newReq.URL = buildUpstreamURL(newReq.URL, p.upstreamURL)
 	newReq.RequestURI = ""
 	newReq.Host = p.upstreamURL.Host
@@ -96,8 +98,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		newReq.Header.Set(XForwardedFor, clientIP)
 	}
 
-	outDump, _ := httputil.DumpRequestOut(newReq, true)
-	log.Println(string(outDump))
+	outDumpReq, _ := httputil.DumpRequestOut(newReq, true)
+	log.Println(string(outDumpReq))
 
 	res, err := p.transport.RoundTrip(newReq)
 	if err != nil {
@@ -106,6 +108,12 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer res.Body.Close()
+
+	outDumpRes, _ := httputil.DumpResponse(res, true)
+	log.Println(string(outDumpRes))
+
+	removeHopHeaders(res.Header)
+	copyHeaders(w.Header(), res.Header)
 
 	if _, err := io.Copy(w, res.Body); err != nil {
 		log.Printf("failed to write response:%v", err)
@@ -125,7 +133,45 @@ func buildUpstreamURL(reqURL, upstreamURL *url.URL) *url.URL {
 	joinedURL.Path = strings.TrimRight(upstreamURL.Path, "/") + "/" + strings.TrimLeft(reqURL.Path, "/")
 	joinedURL.RawQuery = upstreamURL.RawQuery + "&" + reqURL.RawQuery
 
+	// Sort the query keys for consistency using `Encode()`.
 	joinedURL.RawQuery = joinedURL.Query().Encode()
 
 	return &joinedURL
+}
+
+// List of hop-by-hop headers taken from the official Go stdlib.
+var hopHeaders = []string{
+	"Connection",
+	"Proxy-Connection",
+	"Keep-Alive",
+	"Proxy-Authenticate",
+	"Proxy-Authorization",
+	"Te",
+	"Trailer",
+	"Transfer-Encoding",
+	"Upgrade",
+}
+
+// removeHopHeaders deletes hop-by-hop headers. Hop-by-hop headers are only for a single
+// connection between client and server, and must not be retransmitted upstream.
+func removeHopHeaders(header http.Header) {
+	for _, h := range header["Connection"] {
+		for dirtyHeader := range strings.SplitSeq(h, ",") {
+			header.Del(strings.TrimSpace(dirtyHeader))
+		}
+	}
+
+	for _, hopHeader := range hopHeaders {
+		header.Del(hopHeader)
+	}
+}
+
+// copyHeaders does a deep-copy of all the headers from `src“ to `dst`.
+func copyHeaders(dst, src http.Header) {
+	for key, values := range src {
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+
 }

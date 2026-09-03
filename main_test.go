@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/url"
 	"testing"
 
@@ -100,6 +101,134 @@ func TestBuildUpstreamURL(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.wantQuery, got.RawQuery, "query should combine params from both sides")
 			}
+		})
+	}
+}
+
+func TestRemoveHopHeaders(t *testing.T) {
+	tests := []struct {
+		name        string
+		header      http.Header
+		wantPresent []string
+		wantAbsent  []string
+	}{
+		{
+			name: "removes all standard hop-by-hop headers",
+			header: http.Header{
+				"Connection":          {"keep-alive"},
+				"Proxy-Connection":    {"keep-alive"},
+				"Keep-Alive":          {"timeout=5"},
+				"Proxy-Authenticate":  {"Basic"},
+				"Proxy-Authorization": {"Basic dGVzdA=="},
+				"Te":                  {"trailers"},
+				"Trailer":             {"X-Trailer"},
+				"Transfer-Encoding":   {"chunked"},
+				"Upgrade":             {"websocket"},
+			},
+			wantPresent: []string{},
+			wantAbsent: []string{
+				"Connection",
+				"Proxy-Connection",
+				"Keep-Alive",
+				"Proxy-Authenticate",
+				"Proxy-Authorization",
+				"Te",
+				"Trailer",
+				"Transfer-Encoding",
+				"Upgrade",
+			},
+		},
+		{
+			name: "removes headers referenced in Connection header",
+			header: http.Header{
+				"Connection": {"X-Custom, X-Other"},
+				"X-Custom":   {"value"},
+				"X-Other":    {"value"},
+			},
+			wantPresent: []string{},
+			wantAbsent:  []string{"Connection", "X-Custom", "X-Other"},
+		},
+		{
+			name: "trims whitespace in Connection header values",
+			header: http.Header{
+				"Connection": {" X-Custom , X-Other "},
+				"X-Custom":   {"value"},
+				"X-Other":    {"value"},
+			},
+			wantPresent: []string{},
+			wantAbsent:  []string{"Connection", "X-Custom", "X-Other"},
+		},
+		{
+			name: "preserves non-hop headers",
+			header: http.Header{
+				"Authorization": {"Bearer token"},
+				"Content-Type":  {"application/json"},
+				"Connection":    {"keep-alive"},
+				"Keep-Alive":    {"timeout=5"},
+			},
+			wantPresent: []string{"Authorization", "Content-Type"},
+			wantAbsent:  []string{"Connection", "Keep-Alive"},
+		},
+		{
+			name:        "handles empty headers gracefully",
+			header:      http.Header{},
+			wantPresent: []string{},
+			wantAbsent:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			removeHopHeaders(tt.header)
+
+			for _, h := range tt.wantPresent {
+				assert.NotEmpty(t, tt.header.Get(h), "header %q should be present", h)
+			}
+			for _, h := range tt.wantAbsent {
+				assert.Empty(t, tt.header.Get(h), "header %q should be removed", h)
+			}
+		})
+	}
+}
+
+func TestCopyHeaders(t *testing.T) {
+	tests := []struct {
+		name string
+		src  http.Header
+		dst  http.Header
+		want http.Header
+	}{
+		{
+			name: "copies all headers to empty destination",
+			src:  http.Header{"X-Foo": {"bar"}},
+			dst:  http.Header{},
+			want: http.Header{"X-Foo": {"bar"}},
+		},
+		{
+			name: "preserves multiple values for same key",
+			src:  http.Header{"X-Foo": {"a", "b"}},
+			dst:  http.Header{},
+			want: http.Header{"X-Foo": {"a", "b"}},
+		},
+		{
+			name: "appends to existing destination headers",
+			src:  http.Header{"X-Foo": {"bar"}},
+			dst:  http.Header{"X-Foo": {"baz"}},
+			want: http.Header{"X-Foo": {"baz", "bar"}},
+		},
+		{
+			name: "handles empty source gracefully",
+			src:  http.Header{},
+			dst:  http.Header{},
+			want: http.Header{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			copyHeaders(tt.dst, tt.src)
+
+			assert.Equal(t, tt.want, tt.dst, "destination headers should match expected")
 		})
 	}
 }
