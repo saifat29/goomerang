@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -230,53 +229,6 @@ func TestCopyHeaders(t *testing.T) {
 			copyHeaders(tt.dst, tt.src)
 
 			assert.Equal(t, tt.want, tt.dst, "destination headers should match expected")
-		})
-	}
-}
-
-func TestResponseExpired(t *testing.T) {
-	now := time.Now()
-
-	tests := []struct {
-		name     string
-		response Response
-		want     bool
-	}{
-		{
-			name:     "returns false for fresh response",
-			response: Response{AccessedAt: now, TTL: time.Hour},
-			want:     false,
-		},
-		{
-			name:     "returns false for long TTL",
-			response: Response{AccessedAt: now, TTL: 24 * time.Hour},
-			want:     false,
-		},
-		{
-			name:     "returns true when TTL has elapsed",
-			response: Response{AccessedAt: now.Add(-2 * time.Hour), TTL: time.Hour},
-			want:     true,
-		},
-		{
-			name:     "returns true for zero TTL",
-			response: Response{AccessedAt: now, TTL: 0},
-			want:     true,
-		},
-		{
-			name:     "returns true for zero value response",
-			response: Response{},
-			want:     true,
-		},
-		{
-			name:     "returns true for negative TTL",
-			response: Response{AccessedAt: now, TTL: -time.Hour},
-			want:     true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.response.Expired(), "expiry check should match expected")
 		})
 	}
 }

@@ -77,6 +77,57 @@ func TestMemoryLRUGetMissingKey(t *testing.T) {
 	assert.Equal(t, 1, len(cache.items), "existing entry should be untouched")
 }
 
+func TestMemoryLRUGetEvictsExpiredEntry(t *testing.T) {
+	t.Run("evicts entry expired by response TTL", func(t *testing.T) {
+		cache := NewMemoryLRU(10, time.Hour)
+		key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+
+		cache.Set(key, &Response{
+			Headers:    http.Header{"Content-Type": {"text/plain"}},
+			Body:       []byte("users"),
+			StatusCode: http.StatusOK,
+			AccessedAt: time.Now().Add(-2 * time.Hour),
+			TTL:        time.Hour,
+		})
+
+		got := cache.Get(key)
+
+		assert.Nil(t, got, "expired entry should not be returned")
+		assert.Empty(t, cache.items, "expired entry should be removed from the map")
+		assert.Zero(t, cache.rankList.Len(), "expired entry should be removed from the rank list")
+		assert.Nil(t, cache.Get(key), "subsequent Get should still return nil")
+	})
+
+	t.Run("evicts entry expired by global cache TTL", func(t *testing.T) {
+		cache := NewMemoryLRU(10, 30*time.Minute)
+		key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+
+		cache.Set(key, &Response{
+			Headers:    http.Header{"Content-Type": {"text/plain"}},
+			Body:       []byte("users"),
+			StatusCode: http.StatusOK,
+			AccessedAt: time.Now().Add(-time.Hour),
+			TTL:        24 * time.Hour,
+		})
+
+		got := cache.Get(key)
+
+		assert.Nil(t, got, "entry past the global TTL should not be returned")
+		assert.Empty(t, cache.items, "entry should be removed from the map")
+		assert.Zero(t, cache.rankList.Len(), "entry should be removed from the rank list")
+	})
+}
+
+func TestMemoryLRUGetNonResponseEntry(t *testing.T) {
+	cache := NewMemoryLRU(10, time.Hour)
+	key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+
+	cache.Set(key, newTestResponse("users"))
+	cache.items[key].Value = "not a response"
+
+	assert.Nil(t, cache.Get(key), "Get should return nil for a corrupted entry")
+}
+
 func TestMemoryLRUOverwriteSameKey(t *testing.T) {
 	cache := NewMemoryLRU(10, time.Hour)
 	key := CacheKey{Method: "GET", URL: "http://example.com/users"}
@@ -116,6 +167,109 @@ func TestMemoryLRURecencyOrder(t *testing.T) {
 	resB2 := newTestResponse("b2")
 	cache.Set(keyB, resB2)
 	assert.Equal(t, []string{"b2", "a", "c"}, lruOrder(cache), "overwriting a key should promote it to the front")
+}
+
+func TestMemoryLRUExpired(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name       string
+		cacheTTL   time.Duration
+		resTTL     time.Duration
+		accessedAt time.Time
+		want       bool
+	}{
+		{
+			name:       "returns false for fresh response",
+			cacheTTL:   time.Hour,
+			resTTL:     time.Hour,
+			accessedAt: now,
+			want:       false,
+		},
+		{
+			name:       "response TTL governs when shorter and has elapsed",
+			cacheTTL:   24 * time.Hour,
+			resTTL:     time.Hour,
+			accessedAt: now.Add(-2 * time.Hour),
+			want:       true,
+		},
+		{
+			name:       "response TTL governs when shorter and is fresh",
+			cacheTTL:   24 * time.Hour,
+			resTTL:     time.Hour,
+			accessedAt: now.Add(-30 * time.Minute),
+			want:       false,
+		},
+		{
+			name:       "cache TTL governs when shorter and has elapsed",
+			cacheTTL:   30 * time.Minute,
+			resTTL:     24 * time.Hour,
+			accessedAt: now.Add(-time.Hour),
+			want:       true,
+		},
+		{
+			name:       "cache TTL governs when shorter and is fresh",
+			cacheTTL:   30 * time.Minute,
+			resTTL:     24 * time.Hour,
+			accessedAt: now.Add(-5 * time.Minute),
+			want:       false,
+		},
+		{
+			name:       "expired when both TTLs are equal and elapsed",
+			cacheTTL:   time.Hour,
+			resTTL:     time.Hour,
+			accessedAt: now.Add(-2 * time.Hour),
+			want:       true,
+		},
+		{
+			name:       "expired for zero value response",
+			cacheTTL:   time.Hour,
+			resTTL:     0,
+			accessedAt: time.Time{},
+			want:       true,
+		},
+		{
+			name:       "expired for negative response TTL",
+			cacheTTL:   24 * time.Hour,
+			resTTL:     -time.Hour,
+			accessedAt: now,
+			want:       true,
+		},
+		{
+			name:       "zero cache TTL applies no global cap and response TTL governs",
+			cacheTTL:   0,
+			resTTL:     time.Hour,
+			accessedAt: now.Add(-2 * time.Hour),
+			want:       true,
+		},
+		{
+			name:       "zero cache TTL applies no global cap and fresh response stays",
+			cacheTTL:   0,
+			resTTL:     24 * time.Hour,
+			accessedAt: now.Add(-time.Hour),
+			want:       false,
+		},
+		{
+			name:       "negative cache TTL applies no global cap",
+			cacheTTL:   -time.Hour,
+			resTTL:     time.Hour,
+			accessedAt: now,
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cache := NewMemoryLRU(10, tt.cacheTTL)
+
+			got := cache.expired(&Response{
+				AccessedAt: tt.accessedAt,
+				TTL:        tt.resTTL,
+			})
+
+			assert.Equal(t, tt.want, got, "expiry check should match expected")
+		})
+	}
 }
 
 func TestMemoryLRUConcurrentAccess(t *testing.T) {

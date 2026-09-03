@@ -40,12 +40,13 @@ func (c *MemoryLRU) Get(key CacheKey) *Response {
 		return nil
 	}
 
-	if res.Expired() {
+	if c.expired(res) {
 		c.rankList.Remove(item)
 		delete(c.items, key)
 		return nil
 	}
 
+	res.AccessedAt = time.Now().UTC()
 	c.rankList.MoveToFront(item)
 
 	return res
@@ -61,4 +62,17 @@ func (c *MemoryLRU) Set(key CacheKey, res *Response) {
 
 	newItem := c.rankList.PushFront(res)
 	c.items[key] = newItem
+}
+
+func (c *MemoryLRU) expired(res *Response) bool {
+	effectiveTTL := res.TTL
+	if c.ttl > 0 {
+		effectiveTTL = min(c.ttl, res.TTL)
+	}
+
+	if time.Now().UTC().After(res.AccessedAt.Add(effectiveTTL)) {
+		return true
+	}
+
+	return false
 }

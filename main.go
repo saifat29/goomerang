@@ -300,15 +300,6 @@ func NewResponse(code int, header http.Header, body []byte, ttl time.Duration) *
 	return resp
 }
 
-// Expired returns true if the Response has expired and must be removed.
-func (rs *Response) Expired() bool {
-	if time.Now().UTC().After(rs.AccessedAt.Add(rs.TTL)) {
-		return true
-	}
-
-	return false
-}
-
 // SizeInBytes returns the size of cached response in bytes.
 // Only `Headers` and `Body` is considered for size calculation,
 // because the other fields (and struct padding) would comparitively
