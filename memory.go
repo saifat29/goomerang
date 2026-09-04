@@ -11,18 +11,19 @@ type MemoryLRU struct {
 	items    map[CacheKey]*list.Element
 	rankList *list.List
 
-	maxSize  int
-	usedSize int
-	ttl      time.Duration
+	maxSizeBytes  int
+	usedSizeBytes int
+	ttl           time.Duration
 }
 
-func NewMemoryLRU(maxSize int, ttl time.Duration) *MemoryLRU {
+func NewMemoryLRU(maxSizeBytes int, ttl time.Duration) *MemoryLRU {
 	return &MemoryLRU{
 		items:    make(map[CacheKey]*list.Element),
 		rankList: list.New(),
-		maxSize:  maxSize,
-		usedSize: 0,
-		ttl:      ttl,
+
+		maxSizeBytes:  maxSizeBytes,
+		usedSizeBytes: 0,
+		ttl:           ttl,
 	}
 }
 
@@ -41,6 +42,7 @@ func (c *MemoryLRU) Get(key CacheKey) *Response {
 	}
 
 	if c.expired(res) {
+		c.usedSizeBytes -= res.SizeInBytes()
 		c.rankList.Remove(item)
 		delete(c.items, key)
 		return nil
@@ -57,9 +59,18 @@ func (c *MemoryLRU) Set(key CacheKey, res *Response) {
 	defer c.mu.Unlock()
 
 	if item, ok := c.items[key]; ok {
+		if oldRes, ok := item.Value.(*Response); ok {
+			c.usedSizeBytes -= oldRes.SizeInBytes()
+		}
 		c.rankList.Remove(item)
 	}
 
+	resSize := res.SizeInBytes()
+	if (c.usedSizeBytes + resSize) >= c.maxSizeBytes {
+		c.sweep(resSize)
+	}
+
+	c.usedSizeBytes += resSize
 	newItem := c.rankList.PushFront(res)
 	c.items[key] = newItem
 }
@@ -75,4 +86,26 @@ func (c *MemoryLRU) expired(res *Response) bool {
 	}
 
 	return false
+}
+
+// sweep deletes the least recently used item (from the back)
+// till the new response fits within the cache.
+func (c *MemoryLRU) sweep(bytesToFree int) {
+	for c.rankList.Len() > 0 {
+		lruItem := c.rankList.Back()
+
+		lruResp, ok := lruItem.Value.(*Response)
+		if !ok {
+			return
+		}
+
+		if (c.usedSizeBytes + bytesToFree) < c.maxSizeBytes {
+			return
+		}
+
+		c.rankList.Remove(lruItem)
+		delete(c.items, lruResp.Key)
+
+		c.usedSizeBytes -= lruResp.SizeInBytes()
+	}
 }

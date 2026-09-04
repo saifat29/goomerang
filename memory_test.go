@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -146,7 +147,7 @@ func TestMemoryLRUOverwriteSameKey(t *testing.T) {
 }
 
 func TestMemoryLRURecencyOrder(t *testing.T) {
-	cache := NewMemoryLRU(10, time.Hour)
+	cache := NewMemoryLRU(1000, time.Hour)
 
 	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
 	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
@@ -278,7 +279,7 @@ func TestMemoryLRUConcurrentAccess(t *testing.T) {
 		iterations = 100
 	)
 
-	cache := NewMemoryLRU(goroutines, time.Hour)
+	cache := NewMemoryLRU(1<<20, time.Hour)
 
 	var wg sync.WaitGroup
 	for g := range goroutines {
@@ -307,4 +308,277 @@ func TestMemoryLRUConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, goroutines, len(cache.items), "all goroutine keys should be cached")
+}
+
+func TestMemoryLRUSetEvictsToRespectMaxSize(t *testing.T) {
+	t.Run("evicts least recently used entries until the new response fits", func(t *testing.T) {
+		cache := NewMemoryLRU(70, time.Hour)
+
+		keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+		keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+		keyC := CacheKey{Method: "GET", URL: "http://example.com/c"}
+		keyD := CacheKey{Method: "GET", URL: "http://example.com/d"}
+
+		bodyA := strings.Repeat("a", 20)
+		bodyB := strings.Repeat("b", 20)
+		bodyC := strings.Repeat("c", 20)
+		bodyD := strings.Repeat("d", 25)
+
+		resA := NewResponse(keyA, http.StatusOK, http.Header{}, []byte(bodyA), time.Hour)
+		resB := NewResponse(keyB, http.StatusOK, http.Header{}, []byte(bodyB), time.Hour)
+		resC := NewResponse(keyC, http.StatusOK, http.Header{}, []byte(bodyC), time.Hour)
+		resD := NewResponse(keyD, http.StatusOK, http.Header{}, []byte(bodyD), time.Hour)
+
+		cache.Set(keyA, resA)
+		cache.Set(keyB, resB)
+		cache.Set(keyC, resC)
+		cache.Set(keyD, resD)
+
+		assert.Equal(t, []string{bodyD, bodyC, bodyB}, lruOrder(cache), "a should be evicted as the least recently used entry")
+		assert.Equal(t, 3, len(cache.items), "only entries that fit should remain")
+		assert.Equal(t, 3, cache.rankList.Len(), "rank list should stay in sync with the map")
+		assert.Equal(t, 65, cache.usedSizeBytes, "usedSizeBytes should equal the sum of live entry sizes")
+
+		assert.Nil(t, cache.Get(keyA), "evicted entry should not be returned")
+		assert.Same(t, resB, cache.Get(keyB))
+		assert.Same(t, resC, cache.Get(keyC))
+		assert.Same(t, resD, cache.Get(keyD))
+	})
+
+	t.Run("keeps recently accessed entries over stale ones", func(t *testing.T) {
+		cache := NewMemoryLRU(70, time.Hour)
+
+		keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+		keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+		keyC := CacheKey{Method: "GET", URL: "http://example.com/c"}
+		keyD := CacheKey{Method: "GET", URL: "http://example.com/d"}
+
+		resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+		resB := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+		resC := NewResponse(keyC, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+		resD := NewResponse(keyD, http.StatusOK, http.Header{}, make([]byte, 25), time.Hour)
+
+		cache.Set(keyA, resA)
+		cache.Set(keyB, resB)
+		cache.Set(keyC, resC)
+
+		cache.Get(keyA)
+
+		cache.Set(keyD, resD)
+
+		assert.Nil(t, cache.Get(keyB), "stale entry should be evicted first")
+		assert.Same(t, resA, cache.Get(keyA), "recently accessed entry should survive eviction")
+		assert.Same(t, resC, cache.Get(keyC))
+		assert.Same(t, resD, cache.Get(keyD))
+	})
+}
+
+func TestMemoryLRUSetEvictsOnExactCapacityBoundary(t *testing.T) {
+	cache := NewMemoryLRU(46, time.Hour)
+
+	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+
+	resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+	resB := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 26), time.Hour)
+
+	cache.Set(keyA, resA)
+	cache.Set(keyB, resB)
+
+	assert.Nil(t, cache.Get(keyA), "entry should be evicted when the new response exactly fills capacity")
+	assert.Same(t, resB, cache.Get(keyB))
+	assert.Equal(t, 1, len(cache.items))
+	assert.Equal(t, 26, cache.usedSizeBytes)
+}
+
+func TestMemoryLRUSetZeroCapacity(t *testing.T) {
+	cache := NewMemoryLRU(0, time.Hour)
+
+	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+
+	resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+	resB := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+
+	assert.NotPanics(t, func() {
+		cache.Set(keyA, resA)
+	}, "Set on a zero capacity cache should not panic")
+	assert.Same(t, resA, cache.Get(keyA))
+
+	cache.Set(keyB, resB)
+
+	assert.Nil(t, cache.Get(keyA), "zero capacity cache should only hold the newest entry")
+	assert.Same(t, resB, cache.Get(keyB))
+	assert.Equal(t, 1, len(cache.items))
+	assert.Equal(t, 20, cache.usedSizeBytes)
+}
+
+func TestMemoryLRUSetOversizedResponse(t *testing.T) {
+	cache := NewMemoryLRU(10, time.Hour)
+
+	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+
+	resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+	resB := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 30), time.Hour)
+
+	cache.Set(keyA, resA)
+	assert.Same(t, resA, cache.Get(keyA), "a single oversized response should still be cached")
+
+	cache.Set(keyB, resB)
+
+	assert.Nil(t, cache.Get(keyA), "all previous entries should be evicted for an oversized response")
+	assert.Same(t, resB, cache.Get(keyB))
+	assert.Equal(t, 1, len(cache.items))
+	assert.Equal(t, 30, cache.usedSizeBytes)
+}
+
+func TestMemoryLRUSetZeroSizeResponse(t *testing.T) {
+	cache := NewMemoryLRU(10, time.Hour)
+
+	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+	keyEmpty := CacheKey{Method: "GET", URL: "http://example.com/empty"}
+
+	resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+	resEmpty := NewResponse(keyEmpty, http.StatusOK, http.Header{}, []byte{}, time.Hour)
+
+	cache.Set(keyA, resA)
+	cache.Set(keyEmpty, resEmpty)
+
+	assert.Same(t, resEmpty, cache.Get(keyEmpty))
+	assert.Nil(t, cache.Get(keyA), "existing entry should be evicted to admit the zero size response")
+	assert.Equal(t, 1, len(cache.items))
+	assert.Equal(t, 0, cache.usedSizeBytes)
+}
+
+func TestMemoryLRUSetOverwriteAccounting(t *testing.T) {
+	t.Run("does not double count size when overwriting the same key", func(t *testing.T) {
+		cache := NewMemoryLRU(100, time.Hour)
+		key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+
+		big := NewResponse(key, http.StatusOK, http.Header{}, make([]byte, 60), time.Hour)
+		small := NewResponse(key, http.StatusOK, http.Header{}, make([]byte, 10), time.Hour)
+
+		cache.Set(key, big)
+		assert.Equal(t, 60, cache.usedSizeBytes)
+
+		cache.Set(key, small)
+		assert.Same(t, small, cache.Get(key))
+		assert.Equal(t, 1, len(cache.items), "overwriting must not duplicate map entries")
+		assert.Equal(t, 10, cache.usedSizeBytes, "usedSizeBytes should only account for the live entry")
+
+		cache.Set(key, big)
+		assert.Same(t, big, cache.Get(key))
+		assert.Equal(t, 60, cache.usedSizeBytes)
+	})
+
+	t.Run("does not evict entries when the replaced key frees enough space", func(t *testing.T) {
+		cache := NewMemoryLRU(50, time.Hour)
+
+		keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+		keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+
+		resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+		resB1 := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+		resB2 := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 25), time.Hour)
+
+		cache.Set(keyA, resA)
+		cache.Set(keyB, resB1)
+		cache.Set(keyB, resB2)
+
+		assert.Same(t, resA, cache.Get(keyA), "entry should survive since the replaced key frees its own space")
+		assert.Same(t, resB2, cache.Get(keyB))
+		assert.Equal(t, 2, len(cache.items))
+		assert.Equal(t, 45, cache.usedSizeBytes)
+	})
+}
+
+func TestMemoryLRUGetExpiredReclaimsUsedSizeBusedSizeBytes(t *testing.T) {
+	cache := NewMemoryLRU(100, time.Hour)
+
+	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+	keyC := CacheKey{Method: "GET", URL: "http://example.com/c"}
+
+	resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 60), time.Hour)
+	resB := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 30), time.Hour)
+	resC := NewResponse(keyC, http.StatusOK, http.Header{}, make([]byte, 60), time.Hour)
+
+	cache.Set(keyA, resA)
+	cache.Set(keyB, resB)
+
+	cache.items[keyA].Value.(*Response).AccessedAt = time.Now().Add(-2 * time.Hour)
+
+	assert.Nil(t, cache.Get(keyA), "expired entry should be evicted")
+	assert.Equal(t, 30, cache.usedSizeBytes, "expired eviction should reclaim the entry size")
+
+	cache.Set(keyC, resC)
+
+	assert.Same(t, resB, cache.Get(keyB), "live entry should not be evicted once expired size is reclaimed")
+	assert.Same(t, resC, cache.Get(keyC))
+	assert.Equal(t, 2, len(cache.items))
+	assert.Equal(t, 90, cache.usedSizeBytes)
+}
+
+func TestMemoryLRUSweepSkipsCorruptedEntry(t *testing.T) {
+	cache := NewMemoryLRU(30, time.Hour)
+
+	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
+	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+
+	resA := NewResponse(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+	resB := NewResponse(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+
+	cache.Set(keyA, resA)
+	cache.items[keyA].Value = "not a response"
+
+	cache.Set(keyB, resB)
+
+	assert.Same(t, resB, cache.Get(keyB), "Set should still succeed when sweep cannot release space")
+	assert.Nil(t, cache.Get(keyA))
+	assert.Equal(t, 2, len(cache.items), "corrupted entry should be left untouched by sweep")
+	assert.Equal(t, 2, cache.rankList.Len())
+	assert.Equal(t, 40, cache.usedSizeBytes)
+}
+
+func TestMemoryLRUConcurrentEviction(t *testing.T) {
+	const (
+		goroutines = 8
+		iterations = 200
+	)
+
+	cache := NewMemoryLRU(128, time.Hour)
+
+	var wg sync.WaitGroup
+	for g := range goroutines {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			key := CacheKey{Method: "GET", URL: fmt.Sprintf("http://example.com/evict-%d", g)}
+
+			for range iterations {
+				res := NewResponse(key, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
+				cache.Set(key, res)
+				cache.Get(key)
+			}
+		}()
+	}
+	wg.Wait()
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	assert.Equal(t, cache.rankList.Len(), len(cache.items), "map and rank list should stay in sync")
+
+	totalSize := 0
+	for _, item := range cache.items {
+		if res, ok := item.Value.(*Response); ok {
+			totalSize += res.SizeInBytes()
+		}
+	}
+
+	assert.Equal(t, totalSize, cache.usedSizeBytes, "usedSizeBytes should equal the sum of live entry sizes")
+	assert.Less(t, cache.usedSizeBytes, 128, "usedSizeBytes should stay under max size after every Set")
 }

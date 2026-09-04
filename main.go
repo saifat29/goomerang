@@ -165,9 +165,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if saveToCache(newReq, res) {
 		log.Println("caching response")
 
+		cacheKey := NewCacheKey(r)
 		p.cache.Set(
-			NewCacheKey(r),
-			NewResponse(res.StatusCode, res.Header, resBody, 5*time.Minute),
+			cacheKey,
+			NewResponse(cacheKey, res.StatusCode, res.Header, resBody, 5*time.Minute),
 		)
 	}
 
@@ -276,26 +277,26 @@ func saveToCache(req *http.Request, res *http.Response) bool {
 
 // Response contains the response fields to be cached.
 type Response struct {
+	Key        CacheKey
 	Headers    http.Header
 	Body       []byte
 	StatusCode int
-	Size       int
 	TTL        time.Duration
 	AccessedAt time.Time
 }
 
-func NewResponse(code int, header http.Header, body []byte, ttl time.Duration) *Response {
+func NewResponse(key CacheKey, code int, header http.Header, body []byte, ttl time.Duration) *Response {
 	bodyCopy := make([]byte, len(body))
 	copy(bodyCopy, body)
 
 	resp := &Response{
+		Key:        key,
 		Headers:    header.Clone(),
 		Body:       bodyCopy,
 		StatusCode: code,
 		TTL:        ttl,
 		AccessedAt: time.Now().UTC(),
 	}
-	resp.Size = resp.SizeInBytes()
 
 	return resp
 }
