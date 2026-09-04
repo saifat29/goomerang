@@ -209,6 +209,10 @@ func saveToCache(req *http.Request, res *http.Response) bool {
 		return false
 	}
 
+	if res.StatusCode != http.StatusOK {
+		return false
+	}
+
 	cacheCtrlHeader := parseCacheCtrlHeader(res.Header)
 
 	if slices.Contains(cacheCtrlHeader, "private") ||
