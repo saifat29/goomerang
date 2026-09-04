@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/saifat29/goomerang/cache"
+	"github.com/saifat29/goomerang/config"
 )
 
 const (
@@ -25,25 +26,46 @@ const (
 
 // ReverseProxy implements an HTTP-only proxy.
 type ReverseProxy struct {
-	upstreamURL *url.URL
-	transport   http.RoundTripper
-	cache       *cache.MemoryLRU
+	routes    []Route
+	transport http.RoundTripper
+	cache     *cache.MemoryLRU
 }
 
 // NewReverseProxy returns a new ReverseProxy with the provided upstream URL,
 // transport, and cache, if the transport and cache is not provided, a default is used.
-func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper, c *cache.MemoryLRU) *ReverseProxy {
+func NewReverseProxy(routes []Route, transport http.RoundTripper, c *cache.MemoryLRU) *ReverseProxy {
 	return &ReverseProxy{
-		upstreamURL: upstreamURL,
-		transport:   transport,
-		cache:       c,
+		routes:    routes,
+		transport: transport,
+		cache:     c,
+	}
+}
+
+// RoundTripper returns a new http.RoundTripper with the provided upstream configuration.
+func RoundTripper(cfg config.Upstream) http.RoundTripper {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   cfg.DialTimeout,
+			KeepAlive: cfg.KeepAliveProbes,
+		}).DialContext,
+		DisableKeepAlives:   cfg.DisableKeepAlives,
+		MaxIdleConns:        cfg.MaxIdleConns,
+		MaxIdleConnsPerHost: cfg.MaxIdleConnsPerHost,
+		MaxConnsPerHost:     cfg.MaxConnsPerHost,
+		IdleConnTimeout:     cfg.IdleConnTimeout,
 	}
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	newReq := r.Clone(r.Context())
-
 	cacheStatus := CacheStatusBypass
+
+	route := p.findRoute(newReq.URL.Path)
+	if route == nil {
+		log.Printf("no upstream route found")
+		http.Error(w, "no upstream route found", http.StatusNotFound)
+		return
+	}
 
 	if serveFromCache(newReq) {
 		log.Println("serving from cache")
@@ -71,9 +93,9 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	removeHopHeaders(newReq.Header)
 
-	newReq.URL = buildUpstreamURL(newReq.URL, p.upstreamURL)
+	newReq.URL = buildUpstreamURL(newReq.URL, route.UpstreamURL)
 	newReq.RequestURI = ""
-	newReq.Host = p.upstreamURL.Host
+	newReq.Host = route.UpstreamURL.Host
 
 	clientIP, _, err := net.SplitHostPort(newReq.RemoteAddr)
 	if err == nil {
@@ -124,6 +146,24 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to write response", http.StatusInternalServerError)
 		return
 	}
+}
+
+// findRoute finds the best matching route for the given path.
+// It returns the route with the longest matching prefix.
+// At high traffic this will surely be a bottleneck, so a more
+// efficient solution would be needed.
+func (p *ReverseProxy) findRoute(path string) *Route {
+	var bestMatch *Route
+	var bestLen int
+
+	for i := range p.routes {
+		if p.routes[i].pathMatched(path) && len(p.routes[i].Path) > bestLen {
+			bestMatch = &p.routes[i]
+			bestLen = len(p.routes[i].Path)
+		}
+	}
+
+	return bestMatch
 }
 
 // buildUpstreamURL creates the upstream URL that will be used for sending

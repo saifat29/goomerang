@@ -34,7 +34,7 @@ type Config struct {
 	Server   Server   `json:"server" yaml:"server"`
 	Cache    Cache    `json:"cache" yaml:"cache"`
 	Upstream Upstream `json:"upstream" yaml:"upstream"`
-	Proxy    Proxy    `json:"proxy" yaml:"proxy"`
+	Proxy    []Proxy  `json:"proxy" yaml:"proxy"`
 }
 
 // Server contains the configuration fields for the HTTP server.
@@ -64,7 +64,8 @@ type Upstream struct {
 
 // Proxy contains the configuration fields for the proxy.
 type Proxy struct {
-	UpstreamURL *URL `json:"upstream_url" yaml:"upstream_url"`
+	Path     string `json:"path" yaml:"path"`
+	Upstream *URL   `json:"upstream" yaml:"upstream"`
 }
 
 func (c *Config) String() string {
@@ -137,8 +138,17 @@ func Load(path string) (*Config, error) {
 // validate checks if the required fields in the configuration are set
 // and valid and returns an error if not.
 func (c *Config) validate() error {
-	if c.Proxy.UpstreamURL == nil || c.Proxy.UpstreamURL.String() == "" {
-		return errors.New("upstream url is required")
+	if len(c.Proxy) == 0 {
+		return errors.New("at least one proxy configuration is required")
+	}
+
+	for _, proxy := range c.Proxy {
+		if proxy.Path == "" {
+			return errors.New("proxy path is required")
+		}
+		if proxy.Upstream == nil || proxy.Upstream.URL == nil {
+			return errors.New("proxy upstream URL is required")
+		}
 	}
 
 	return nil
@@ -176,8 +186,8 @@ func (c *Config) applyDefaults() {
 	if c.Upstream.MaxIdleConns == 0 {
 		c.Upstream.MaxIdleConns = DefaultMaxIdleConns
 	}
-	if c.Upstream.MaxConnsPerHost == 0 {
-		c.Upstream.MaxConnsPerHost = DefaultMaxIdleConnsPerHost
+	if c.Upstream.MaxIdleConnsPerHost == 0 {
+		c.Upstream.MaxIdleConnsPerHost = DefaultMaxIdleConnsPerHost
 	}
 	if c.Upstream.MaxConnsPerHost == 0 {
 		c.Upstream.MaxConnsPerHost = DefaultMaxConnsPerHost

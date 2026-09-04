@@ -232,3 +232,62 @@ func TestCopyHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestFindRoute(t *testing.T) {
+	upstreamA, _ := url.Parse("http://a.com")
+	upstreamB, _ := url.Parse("http://b.com")
+	upstreamC, _ := url.Parse("http://c.com")
+
+	p := &ReverseProxy{
+		routes: []Route{
+			{Path: "/api", UpstreamURL: upstreamA},
+			{Path: "/api/v1", UpstreamURL: upstreamB},
+			{Path: "/static", UpstreamURL: upstreamC},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		path     string
+		wantHost string
+	}{
+		{
+			name:     "matches exact prefix",
+			path:     "/api/users",
+			wantHost: "a.com",
+		},
+		{
+			name:     "longest prefix wins",
+			path:     "/api/v1/users",
+			wantHost: "b.com",
+		},
+		{
+			name:     "matches different route",
+			path:     "/static/image.png",
+			wantHost: "c.com",
+		},
+		{
+			name:     "matches root of prefix",
+			path:     "/api",
+			wantHost: "a.com",
+		},
+		{
+			name:     "no match returns nil",
+			path:     "/unknown/path",
+			wantHost: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := p.findRoute(tt.path)
+
+			if tt.wantHost == "" {
+				assert.Nil(t, got)
+			} else {
+				require.NotNil(t, got)
+				assert.Equal(t, tt.wantHost, got.UpstreamURL.Host)
+			}
+		})
+	}
+}

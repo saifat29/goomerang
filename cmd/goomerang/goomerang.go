@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net"
 	"net/http"
 
 	"github.com/saifat29/goomerang/cache"
@@ -19,21 +18,13 @@ func main() {
 	}
 	log.Printf("configuration loaded: %s", cfg)
 
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   cfg.Upstream.DialTimeout,
-			KeepAlive: cfg.Upstream.KeepAliveProbes,
-		}).DialContext,
-		DisableKeepAlives:   false,
-		MaxIdleConns:        cfg.Upstream.MaxIdleConns,
-		MaxIdleConnsPerHost: cfg.Upstream.MaxIdleConnsPerHost,
-		MaxConnsPerHost:     cfg.Upstream.MaxConnsPerHost,
-		IdleConnTimeout:     cfg.Upstream.IdleConnTimeout,
-	}
+	proxyCache := cache.NewMemoryLRU(cfg.Cache.MaxSizeBytes, cfg.Cache.TTL)
 
-	c := cache.NewMemoryLRU(cfg.Cache.MaxSizeBytes, cfg.Cache.TTL)
-
-	reverseProxy := proxy.NewReverseProxy(cfg.Proxy.UpstreamURL.URL, transport, c)
+	reverseProxy := proxy.NewReverseProxy(
+		proxy.FromConfig(cfg.Proxy),
+		proxy.RoundTripper(cfg.Upstream),
+		proxyCache,
+	)
 
 	server := &http.Server{
 		Addr:         cfg.Server.Addr,
