@@ -33,24 +33,6 @@ type ReverseProxy struct {
 // NewReverseProxy returns a new ReverseProxy with the provided upstream URL,
 // transport, and cache, if the transport and cache is not provided, a default is used.
 func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper, c *cache.MemoryLRU) *ReverseProxy {
-	if transport == nil {
-		transport = &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			DisableKeepAlives:   false,
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 100,
-			MaxConnsPerHost:     100,
-			IdleConnTimeout:     90 * time.Second,
-		}
-	}
-
-	if c == nil {
-		c = cache.NewMemoryLRU(1<<30, 5*time.Minute)
-	}
-
 	return &ReverseProxy{
 		upstreamURL: upstreamURL,
 		transport:   transport,
