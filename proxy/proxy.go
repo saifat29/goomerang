@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"io"
@@ -10,12 +10,11 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/saifat29/goomerang/cache"
 )
 
 const (
-	serverAddr  string = ":8080"
-	upstreamURL string = "http://httpbin.org"
-
 	XForwardedFor string = "X-Forwarded-For"
 	XCacheStatus  string = "X-Cache-Status"
 
@@ -24,53 +23,16 @@ const (
 	CacheStatusBypass string = "BYPASS"
 )
 
-func main() {
-	parsedURL, err := url.Parse(upstreamURL)
-	if err != nil {
-		log.Fatalf("failed to parse upstream URL: %s", upstreamURL)
-	}
-
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		DisableKeepAlives:   false,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		MaxConnsPerHost:     100,
-		IdleConnTimeout:     90 * time.Second,
-	}
-
-	cache := NewMemoryLRU(1<<30, 5*time.Minute)
-
-	reverseProxy := NewReverseProxy(parsedURL, transport, cache)
-
-	server := &http.Server{
-		Addr:         serverAddr,
-		Handler:      reverseProxy,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
-
-	log.Printf("starting http server on %s", serverAddr)
-
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("failed to start http server: %v", err)
-	}
-}
-
 // ReverseProxy implements an HTTP-only proxy.
 type ReverseProxy struct {
 	upstreamURL *url.URL
 	transport   http.RoundTripper
-	cache       *MemoryLRU
+	cache       *cache.MemoryLRU
 }
 
-// NewReverseProxy returns a new ReverseProxy with the provided upstream URL
-// and transport, if the transport is not provided, a default is used.
-func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper, cache *MemoryLRU) *ReverseProxy {
+// NewReverseProxy returns a new ReverseProxy with the provided upstream URL,
+// transport, and cache, if the transport and cache is not provided, a default is used.
+func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper, c *cache.MemoryLRU) *ReverseProxy {
 	if transport == nil {
 		transport = &http.Transport{
 			DialContext: (&net.Dialer{
@@ -85,14 +47,14 @@ func NewReverseProxy(upstreamURL *url.URL, transport http.RoundTripper, cache *M
 		}
 	}
 
-	if cache == nil {
-		cache = NewMemoryLRU(1<<30, 5*time.Minute)
+	if c == nil {
+		c = cache.NewMemoryLRU(1<<30, 5*time.Minute)
 	}
 
 	return &ReverseProxy{
 		upstreamURL: upstreamURL,
 		transport:   transport,
-		cache:       cache,
+		cache:       c,
 	}
 }
 
@@ -103,7 +65,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if serveFromCache(newReq) {
 		log.Println("serving from cache")
-		cacheKey := NewCacheKey(r)
+		cacheKey := cache.NewCacheKey(r)
 
 		if cachedRes := p.cache.Get(cacheKey); cachedRes != nil {
 			log.Println("cached response found")
@@ -165,10 +127,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if saveToCache(newReq, res) {
 		log.Println("caching response")
 
-		cacheKey := NewCacheKey(r)
+		cacheKey := cache.NewCacheKey(r)
 		p.cache.Set(
 			cacheKey,
-			NewResponse(cacheKey, res.StatusCode, res.Header, resBody, 5*time.Minute),
+			cache.NewEntry(cacheKey, res.StatusCode, res.Header, resBody, 5*time.Minute),
 		)
 	}
 
@@ -226,7 +188,7 @@ func removeHopHeaders(header http.Header) {
 	}
 }
 
-// copyHeaders does a deep-copy of all the headers from `src“ to `dst`.
+// copyHeaders does a deep-copy of all the headers from `src` to `dst`.
 func copyHeaders(dst, src http.Header) {
 	for key, values := range src {
 		for _, value := range values {
@@ -235,6 +197,7 @@ func copyHeaders(dst, src http.Header) {
 	}
 }
 
+// parseCacheCtrlHeader parses the cache control headers.
 func parseCacheCtrlHeader(header http.Header) []string {
 	var result []string
 
@@ -249,6 +212,7 @@ func parseCacheCtrlHeader(header http.Header) []string {
 	return result
 }
 
+// serveFromCache checks if the request can be served from cache.
 func serveFromCache(req *http.Request) bool {
 	if req.Method != http.MethodGet && req.Method != http.MethodHead {
 		return false
@@ -257,6 +221,7 @@ func serveFromCache(req *http.Request) bool {
 	return true
 }
 
+// saveToCache checks if the response can be saved to cache.
 func saveToCache(req *http.Request, res *http.Response) bool {
 	if req.Method != http.MethodGet && req.Method != http.MethodHead {
 		return false
@@ -273,49 +238,4 @@ func saveToCache(req *http.Request, res *http.Response) bool {
 	}
 
 	return true
-}
-
-// Response contains the response fields to be cached.
-type Response struct {
-	Key        CacheKey
-	Headers    http.Header
-	Body       []byte
-	StatusCode int
-	TTL        time.Duration
-	AccessedAt time.Time
-}
-
-func NewResponse(key CacheKey, code int, header http.Header, body []byte, ttl time.Duration) *Response {
-	bodyCopy := make([]byte, len(body))
-	copy(bodyCopy, body)
-
-	resp := &Response{
-		Key:        key,
-		Headers:    header.Clone(),
-		Body:       bodyCopy,
-		StatusCode: code,
-		TTL:        ttl,
-		AccessedAt: time.Now().UTC(),
-	}
-
-	return resp
-}
-
-// SizeInBytes returns the size of cached response in bytes.
-// Only `Headers` and `Body` is considered for size calculation,
-// because the other fields (and struct padding) would comparitively
-// take insignificant space. This is a good enough solution.
-func (rs *Response) SizeInBytes() int {
-	size := 0
-
-	for key, values := range rs.Headers {
-		size += len(key)
-		for _, value := range values {
-			size += len(value)
-		}
-	}
-
-	size += cap(rs.Body)
-
-	return size
 }

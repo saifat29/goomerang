@@ -1,7 +1,8 @@
-package main
+package cache
 
 import (
 	"encoding/hex"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,4 +121,82 @@ func TestCacheKeyHash(t *testing.T) {
 
 		assert.NotEqual(t, key.String(), key.Hash(), "hash should not leak the raw String output")
 	})
+}
+
+func TestEntrySizeInBytes(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry Entry
+		want  int
+	}{
+		{
+			name:  "returns zero for empty entry",
+			entry: Entry{},
+			want:  0,
+		},
+		{
+			name:  "returns zero for empty header map",
+			entry: Entry{Headers: http.Header{}},
+			want:  0,
+		},
+		{
+			name:  "counts body capacity even when body is empty",
+			entry: Entry{Body: make([]byte, 0, 100)},
+			want:  100,
+		},
+		{
+			name:  "counts body capacity not length",
+			entry: Entry{Body: make([]byte, 2, 10)},
+			want:  10,
+		},
+		{
+			name: "counts header keys and values",
+			entry: Entry{
+				Headers: http.Header{"X-Foo": {"bar"}},
+			},
+			want: 8,
+		},
+		{
+			name: "counts every value of a multi value header",
+			entry: Entry{
+				Headers: http.Header{"X-Foo": {"a", "bb"}},
+			},
+			want: 8,
+		},
+		{
+			name: "counts all headers",
+			entry: Entry{
+				Headers: http.Header{"X-Foo": {"bar"}, "X-Baz": {"qux"}},
+			},
+			want: 16,
+		},
+		{
+			name: "counts headers and body together",
+			entry: Entry{
+				Headers: http.Header{"Content-Type": {"text/plain"}},
+				Body:    make([]byte, 0, 5),
+			},
+			want: 27,
+		},
+		{
+			name: "counts multibyte values in bytes",
+			entry: Entry{
+				Headers: http.Header{"X-Lang": {"héllo"}},
+			},
+			want: 12,
+		},
+		{
+			name: "counts empty key and value as zero",
+			entry: Entry{
+				Headers: http.Header{"": {""}},
+			},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.entry.SizeInBytes(), "size in bytes should match expected")
+		})
+	}
 }

@@ -9,7 +9,7 @@ all: fmt lint test build
 
 build:
 	mkdir -p bin/$(GOOS)/$(GOARCH)
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BIN) .
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BIN) ./cmd/goomerang
 
 run: build
 	./$(BIN)

@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"net/http"
@@ -229,84 +229,6 @@ func TestCopyHeaders(t *testing.T) {
 			copyHeaders(tt.dst, tt.src)
 
 			assert.Equal(t, tt.want, tt.dst, "destination headers should match expected")
-		})
-	}
-}
-
-func TestResponseSizeInBytes(t *testing.T) {
-	tests := []struct {
-		name     string
-		response Response
-		want     int
-	}{
-		{
-			name:     "returns zero for empty response",
-			response: Response{},
-			want:     0,
-		},
-		{
-			name:     "returns zero for empty header map",
-			response: Response{Headers: http.Header{}},
-			want:     0,
-		},
-		{
-			name:     "counts body capacity even when body is empty",
-			response: Response{Body: make([]byte, 0, 100)},
-			want:     100,
-		},
-		{
-			name:     "counts body capacity not length",
-			response: Response{Body: make([]byte, 2, 10)},
-			want:     10,
-		},
-		{
-			name: "counts header keys and values",
-			response: Response{
-				Headers: http.Header{"X-Foo": {"bar"}},
-			},
-			want: 8,
-		},
-		{
-			name: "counts every value of a multi value header",
-			response: Response{
-				Headers: http.Header{"X-Foo": {"a", "bb"}},
-			},
-			want: 8,
-		},
-		{
-			name: "counts all headers",
-			response: Response{
-				Headers: http.Header{"X-Foo": {"bar"}, "X-Baz": {"qux"}},
-			},
-			want: 16,
-		},
-		{
-			name: "counts headers and body together",
-			response: Response{
-				Headers: http.Header{"Content-Type": {"text/plain"}},
-				Body:    make([]byte, 0, 5),
-			},
-			want: 27,
-		},
-		{
-			name: "counts multibyte values in bytes",
-			response: Response{
-				Headers: http.Header{"X-Lang": {"héllo"}},
-			},
-			want: 12,
-		},
-		{
-			name: "counts empty key and value as zero",
-			response: Response{
-				Headers: http.Header{"": {""}},
-			},
-			want: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.response.SizeInBytes(), "size in bytes should match expected")
 		})
 	}
 }
