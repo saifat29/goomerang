@@ -1,15 +1,13 @@
-GOOS := $(shell go env GOOS)
-GOARCH := $(shell go env GOARCH)
 BIN_NAME := goomerang
-BIN := bin/$(GOOS)/$(GOARCH)/$(BIN_NAME)
+BIN := bin/$(BIN_NAME)
 
 .PHONY: all build run test test-cover lint fmt tidy clean
 
 all: fmt lint test build
 
 build:
-	mkdir -p bin/$(GOOS)/$(GOARCH)
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BIN) ./cmd/goomerang
+	mkdir -p bin
+	CGO_ENABLED=0 go build -ldflags "-X main.version=dev" -o $(BIN) ./cmd/goomerang
 
 run: build
 	./$(BIN)
@@ -24,6 +22,7 @@ test-cover:
 
 lint:
 	go vet ./...
+	goreleaser check
 
 fmt:
 	gofmt -s -w .
@@ -32,4 +31,4 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf bin coverage.out coverage.html
+	rm -rf bin dist coverage.out coverage.html

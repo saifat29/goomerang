@@ -1,0 +1,23 @@
+version: 2
+
+builds:
+  - main: ./cmd/goomerang
+    binary: goomerang
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: ["tar.gz"]
+    name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE.md
+
+checksum:
+  name_template: "checksums.txt"

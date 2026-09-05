@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -10,7 +12,15 @@ import (
 )
 
 func main() {
-	log.Println("starting boomerang")
+	versionFlag := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("goomerang %s\n", version)
+		return
+	}
+
+	log.Println("starting goomerang")
 
 	cfg, err := config.Load("goomerang.yml")
 	if err != nil {
