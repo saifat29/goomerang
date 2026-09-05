@@ -10,6 +10,7 @@ import (
 	"github.com/saifat29/goomerang/cache"
 	"github.com/saifat29/goomerang/config"
 	"github.com/saifat29/goomerang/proxy"
+	"github.com/saifat29/goomerang/proxy/middleware/logger"
 )
 
 func main() {
@@ -37,9 +38,12 @@ func main() {
 	// Initialise cache.
 	proxyCache := cache.NewMemoryLRU(cfg.Cache.MaxSizeBytes, cfg.Cache.TTL)
 
-	// Initialise Reverse Proxy
+	// Initialise middleware registry and register middlewares.
+	mwRegistry := proxy.NewMiddlewareRegistry()
+	mwRegistry.Register("logger", logger.New())
+
 	reverseProxy := proxy.NewReverseProxy(
-		proxy.FromConfig(cfg.Proxy),
+		proxy.FromConfig(cfg.Proxy, mwRegistry),
 		proxy.RoundTripper(cfg.Upstream),
 		proxyCache,
 	)

@@ -74,8 +74,9 @@ type Upstream struct {
 
 // Proxy contains the configuration fields for the proxy.
 type Proxy struct {
-	Path     string `json:"path" yaml:"path"`
-	Upstream *URL   `json:"upstream" yaml:"upstream"`
+	Path        string   `json:"path" yaml:"path"`
+	Upstream    *URL     `json:"upstream" yaml:"upstream"`
+	Middlewares []string `json:"middlewares" yaml:"middlewares"`
 }
 
 func (c *Config) String() string {

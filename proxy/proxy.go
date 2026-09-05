@@ -31,8 +31,7 @@ type ReverseProxy struct {
 	cache     *cache.MemoryLRU
 }
 
-// NewReverseProxy returns a new ReverseProxy with the provided upstream URL,
-// transport, and cache, if the transport and cache is not provided, a default is used.
+// NewReverseProxy returns a new ReverseProxy with the provided routes, transport, and cache.
 func NewReverseProxy(routes []Route, transport http.RoundTripper, c *cache.MemoryLRU) *ReverseProxy {
 	return &ReverseProxy{
 		routes:    routes,
@@ -57,90 +56,100 @@ func RoundTripper(cfg config.Upstream) http.RoundTripper {
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	newReq := r.Clone(r.Context())
-	cacheStatus := CacheStatusBypass
-
-	route := p.findRoute(newReq.URL.Path)
+	route := p.findRoute(r.URL.Path)
 	if route == nil {
-		log.Warn().Str("path", newReq.URL.Path).Msg("no upstream route found")
+		log.Warn().Str("path", r.URL.Path).Msg("no upstream route found")
 		http.Error(w, "no upstream route found", http.StatusNotFound)
 		return
 	}
 
-	if serveFromCache(newReq) {
-		log.Debug().Str("path", newReq.URL.Path).Msg("checking cache")
-		cacheKey := cache.NewCacheKey(r)
+	upstream := p.upstreamHandler(route)
 
-		if cachedRes := p.cache.Get(cacheKey); cachedRes != nil {
-			log.Debug().Str("path", newReq.URL.Path).Msg("cache hit")
-			copyHeaders(w.Header(), cachedRes.Headers)
+	route.Handler(upstream).ServeHTTP(w, r)
+}
 
-			w.Header().Set(XCacheStatus, CacheStatusHit)
-			w.WriteHeader(cachedRes.StatusCode)
+// upstreamHandler accepts a `Route` and returns an `http.HandlerFunc`
+// that proxies the request to the upstream server.
+func (p *ReverseProxy) upstreamHandler(route *Route) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		newReq := r.Clone(r.Context())
+		cacheStatus := CacheStatusBypass
 
-			if _, err := w.Write(cachedRes.Body); err != nil {
-				log.Error().Err(err).Msg("failed to write cached response")
-				http.Error(w, "failed to write response", http.StatusInternalServerError)
+		if serveFromCache(newReq) {
+			log.Debug().Str("path", newReq.URL.Path).Msg("checking cache")
+			cacheKey := cache.NewCacheKey(r)
+
+			if cachedRes := p.cache.Get(cacheKey); cachedRes != nil {
+				log.Debug().Str("path", newReq.URL.Path).Msg("cache hit")
+				copyHeaders(w.Header(), cachedRes.Headers)
+
+				w.Header().Set(XCacheStatus, CacheStatusHit)
+				w.WriteHeader(cachedRes.StatusCode)
+
+				if _, err := w.Write(cachedRes.Body); err != nil {
+					log.Error().Err(err).Msg("failed to write cached response")
+					http.Error(w, "failed to write response", http.StatusInternalServerError)
+					return
+				}
 				return
 			}
+
+			log.Debug().Str("path", newReq.URL.Path).Msg("cache miss")
+			cacheStatus = CacheStatusMiss
+		} else {
+			log.Debug().Str("path", newReq.URL.Path).Msg("cache bypassed")
+		}
+
+		removeHopHeaders(newReq.Header)
+
+		newReq.URL = buildUpstreamURL(newReq.URL, route.UpstreamURL)
+		newReq.RequestURI = ""
+		newReq.Host = route.UpstreamURL.Host
+
+		clientIP, _, err := net.SplitHostPort(newReq.RemoteAddr)
+		if err == nil {
+			// Assuming this proxy is running on the edge. Ideally, we must check `X-Forwarded-For`
+			// and append the `RemoteAddr` if we're behind another proxy.
+			newReq.Header.Set(XForwardedFor, clientIP)
+		}
+
+		res, err := p.transport.RoundTrip(newReq)
+		if err != nil {
+			log.Error().Err(err).Str("upstream", newReq.URL.String()).Msg("upstream server error")
+			http.Error(w, "upstream server error", http.StatusInternalServerError)
+			return
+		}
+		defer res.Body.Close()
+
+		resBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to read upstream response body")
+			http.Error(w, "failed to read response body from upstream server", http.StatusInternalServerError)
 			return
 		}
 
-		log.Debug().Str("path", newReq.URL.Path).Msg("cache miss")
-		cacheStatus = CacheStatusMiss
-	} else {
-		log.Debug().Str("path", newReq.URL.Path).Msg("cache bypassed")
-	}
+		removeHopHeaders(res.Header)
+		copyHeaders(w.Header(), res.Header)
 
-	removeHopHeaders(newReq.Header)
+		if saveToCache(newReq, res) {
+			log.Debug().Str("path", newReq.URL.Path).Msg("storing response in cache")
 
-	newReq.URL = buildUpstreamURL(newReq.URL, route.UpstreamURL)
-	newReq.RequestURI = ""
-	newReq.Host = route.UpstreamURL.Host
+			cacheKey := cache.NewCacheKey(r)
+			p.cache.Set(
+				cacheKey,
+				cache.NewEntry(cacheKey, res.StatusCode, res.Header, resBody, 5*time.Minute),
+			)
+		}
 
-	clientIP, _, err := net.SplitHostPort(newReq.RemoteAddr)
-	if err == nil {
-		// Assuming this proxy is running on the edge. Ideally, we must check `X-Forwarded-For`
-		// and append the `RemoteAddr` if we're behind another proxy.
-		newReq.Header.Set(XForwardedFor, clientIP)
-	}
+		w.Header().Set(XCacheStatus, cacheStatus)
+		w.WriteHeader(res.StatusCode)
 
-	res, err := p.transport.RoundTrip(newReq)
-	if err != nil {
-		log.Error().Err(err).Str("upstream", newReq.URL.String()).Msg("upstream server error")
-		http.Error(w, "upstream server error", http.StatusInternalServerError)
-		return
-	}
-	defer res.Body.Close()
-
-	resBody, err := io.ReadAll(res.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to read upstream response body")
-		http.Error(w, "failed to read response body from upstream server", http.StatusInternalServerError)
-		return
-	}
-
-	removeHopHeaders(res.Header)
-	copyHeaders(w.Header(), res.Header)
-
-	if saveToCache(newReq, res) {
-		log.Debug().Str("path", newReq.URL.Path).Msg("storing response in cache")
-
-		cacheKey := cache.NewCacheKey(r)
-		p.cache.Set(
-			cacheKey,
-			cache.NewEntry(cacheKey, res.StatusCode, res.Header, resBody, 5*time.Minute),
-		)
-	}
-
-	w.Header().Set(XCacheStatus, cacheStatus)
-	w.WriteHeader(res.StatusCode)
-
-	if _, err := w.Write(resBody); err != nil {
-		log.Error().Err(err).Msg("failed to write response")
-		http.Error(w, "failed to write response", http.StatusInternalServerError)
-		return
-	}
+		if _, err := w.Write(resBody); err != nil {
+			log.Error().Err(err).Msg("failed to write response")
+			http.Error(w, "failed to write response", http.StatusInternalServerError)
+			return
+		}
+	})
 }
 
 // findRoute finds the best matching route for the given path.

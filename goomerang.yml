@@ -25,5 +25,9 @@ upstream:
 proxy:
   - path: "/json"
     upstream: "http://httpbin.org"
+    middlewares:
+      - logger
   - path: "/ip"
     upstream: "http://httpbingo.org"
+    middlewares:
+      - logger
