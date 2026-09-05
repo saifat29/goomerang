@@ -28,10 +28,7 @@ func FromConfig(cfg []config.Proxy) []Route {
 }
 
 // pathMatched checks if the given path matches the route's path prefix.
+// More complex matching logic can be added here in the future if needed.
 func (r *Route) pathMatched(path string) bool {
-	if strings.HasPrefix(path, r.Path) {
-		return true
-	}
-
-	return false
+	return strings.HasPrefix(path, r.Path)
 }

@@ -103,14 +103,14 @@ func (u *URL) MarshalYAML() (interface{}, error) {
 	if u == nil || u.URL == nil {
 		return "", nil
 	}
-	return u.URL.String(), nil
+	return u.String(), nil
 }
 
 func (u *URL) MarshalJSON() ([]byte, error) {
 	if u == nil || u.URL == nil {
 		return nil, nil
 	}
-	return json.Marshal(u.URL.String())
+	return json.Marshal(u.String())
 }
 
 // Load reads the configuration from the specified YAML file.
@@ -122,11 +122,11 @@ func Load(path string) (*Config, error) {
 	defer file.Close()
 
 	var cfg Config
-	if err := yaml.NewDecoder(file).Decode(&cfg); err != nil {
+	if err = yaml.NewDecoder(file).Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode YAML: %w", err)
 	}
 
-	if err := cfg.validate(); err != nil {
+	if err = cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 

@@ -67,7 +67,7 @@ func NewEntry(key CacheKey, code int, header http.Header, body []byte, ttl time.
 
 // SizeInBytes returns the size of cached response in bytes.
 // Only `Headers` and `Body` is considered for size calculation,
-// because the other fields (and struct padding) would comparitively
+// because the other fields (and struct padding) would comparatively
 // take insignificant space. This is a good enough solution.
 func (et *Entry) SizeInBytes() int {
 	size := 0

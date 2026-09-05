@@ -104,7 +104,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		newReq.Header.Set(XForwardedFor, clientIP)
 	}
 
-	outDumpReq, _ := httputil.DumpRequestOut(newReq, true)
+	outDumpReq, err := httputil.DumpRequestOut(newReq, true)
+	if err != nil {
+		log.Printf("failed to dump request: %v", err)
+	}
 	log.Println(string(outDumpReq))
 
 	res, err := p.transport.RoundTrip(newReq)
@@ -115,7 +118,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer res.Body.Close()
 
-	outDumpRes, _ := httputil.DumpResponse(res, true)
+	outDumpRes, err := httputil.DumpResponse(res, true)
+	if err != nil {
+		log.Printf("failed to dump response: %v", err)
+	}
 	log.Println(string(outDumpRes))
 
 	resBody, err := io.ReadAll(res.Body)

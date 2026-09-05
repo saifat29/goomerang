@@ -234,9 +234,20 @@ func TestCopyHeaders(t *testing.T) {
 }
 
 func TestFindRoute(t *testing.T) {
-	upstreamA, _ := url.Parse("http://a.com")
-	upstreamB, _ := url.Parse("http://b.com")
-	upstreamC, _ := url.Parse("http://c.com")
+	upstreamA, err := url.Parse("http://a.com")
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+
+	upstreamB, err := url.Parse("http://b.com")
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+
+	upstreamC, err := url.Parse("http://c.com")
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
 
 	p := &ReverseProxy{
 		routes: []Route{

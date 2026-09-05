@@ -45,6 +45,7 @@ test-cover:
 
 lint:
 	go vet ./...
+	golangci-lint run
 	goreleaser check
 
 fmt:

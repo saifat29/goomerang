@@ -507,7 +507,9 @@ func TestMemoryLRUGetExpiredReclaimsUsedSizeBusedSizeBytes(t *testing.T) {
 	cache.Set(keyA, entryA)
 	cache.Set(keyB, entryB)
 
-	cache.items[keyA].Value.(*Entry).AccessedAt = time.Now().Add(-2 * time.Hour)
+	if entry, ok := cache.items[keyA].Value.(*Entry); ok {
+		entry.AccessedAt = time.Now().Add(-2 * time.Hour)
+	}
 
 	assert.Nil(t, cache.Get(keyA), "expired entry should be evicted")
 	assert.Equal(t, 30, cache.usedSizeBytes, "expired eviction should reclaim the entry size")
