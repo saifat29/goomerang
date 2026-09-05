@@ -2,14 +2,14 @@ package proxy
 
 import (
 	"io"
-	"log"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/saifat29/goomerang/cache"
 	"github.com/saifat29/goomerang/config"
@@ -62,33 +62,34 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	route := p.findRoute(newReq.URL.Path)
 	if route == nil {
-		log.Printf("no upstream route found")
+		log.Warn().Str("path", newReq.URL.Path).Msg("no upstream route found")
 		http.Error(w, "no upstream route found", http.StatusNotFound)
 		return
 	}
 
 	if serveFromCache(newReq) {
-		log.Println("serving from cache")
+		log.Debug().Str("path", newReq.URL.Path).Msg("checking cache")
 		cacheKey := cache.NewCacheKey(r)
 
 		if cachedRes := p.cache.Get(cacheKey); cachedRes != nil {
-			log.Println("cached response found")
+			log.Debug().Str("path", newReq.URL.Path).Msg("cache hit")
 			copyHeaders(w.Header(), cachedRes.Headers)
 
 			w.Header().Set(XCacheStatus, CacheStatusHit)
 			w.WriteHeader(cachedRes.StatusCode)
 
 			if _, err := w.Write(cachedRes.Body); err != nil {
-				log.Printf("failed to write response: %v", err)
+				log.Error().Err(err).Msg("failed to write cached response")
 				http.Error(w, "failed to write response", http.StatusInternalServerError)
 				return
 			}
 			return
 		}
-		log.Println("not found in cache")
+
+		log.Debug().Str("path", newReq.URL.Path).Msg("cache miss")
 		cacheStatus = CacheStatusMiss
 	} else {
-		log.Println("cache bypassed")
+		log.Debug().Str("path", newReq.URL.Path).Msg("cache bypassed")
 	}
 
 	removeHopHeaders(newReq.Header)
@@ -104,29 +105,17 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		newReq.Header.Set(XForwardedFor, clientIP)
 	}
 
-	outDumpReq, err := httputil.DumpRequestOut(newReq, true)
-	if err != nil {
-		log.Printf("failed to dump request: %v", err)
-	}
-	log.Println(string(outDumpReq))
-
 	res, err := p.transport.RoundTrip(newReq)
 	if err != nil {
-		log.Printf("upstream server error: %v", err)
+		log.Error().Err(err).Str("upstream", newReq.URL.String()).Msg("upstream server error")
 		http.Error(w, "upstream server error", http.StatusInternalServerError)
 		return
 	}
 	defer res.Body.Close()
 
-	outDumpRes, err := httputil.DumpResponse(res, true)
-	if err != nil {
-		log.Printf("failed to dump response: %v", err)
-	}
-	log.Println(string(outDumpRes))
-
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
-		log.Printf("failed to read response body from upstream server: %v", err)
+		log.Error().Err(err).Msg("failed to read upstream response body")
 		http.Error(w, "failed to read response body from upstream server", http.StatusInternalServerError)
 		return
 	}
@@ -135,7 +124,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	copyHeaders(w.Header(), res.Header)
 
 	if saveToCache(newReq, res) {
-		log.Println("caching response")
+		log.Debug().Str("path", newReq.URL.Path).Msg("storing response in cache")
 
 		cacheKey := cache.NewCacheKey(r)
 		p.cache.Set(
@@ -148,7 +137,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(res.StatusCode)
 
 	if _, err := w.Write(resBody); err != nil {
-		log.Printf("failed to write response: %v", err)
+		log.Error().Err(err).Msg("failed to write response")
 		http.Error(w, "failed to write response", http.StatusInternalServerError)
 		return
 	}

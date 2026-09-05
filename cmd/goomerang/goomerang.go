@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/saifat29/goomerang/cache"
 	"github.com/saifat29/goomerang/config"
@@ -20,22 +21,30 @@ func main() {
 		return
 	}
 
-	log.Println("starting goomerang")
-
+	// Load config, if err then use default config.
 	cfg, err := config.Load("goomerang.yml")
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		log.Warn().Err(err).Msg("loading default config")
+		cfg = config.DefaultConfig()
 	}
-	log.Printf("configuration loaded: %s", cfg)
 
+	// Setup logger
+	setupLogger(cfg)
+
+	log.Info().Msg("starting goomerang")
+	log.Info().Str("config", cfg.String()).Msg("configuration loaded")
+
+	// Initialise cache.
 	proxyCache := cache.NewMemoryLRU(cfg.Cache.MaxSizeBytes, cfg.Cache.TTL)
 
+	// Initialise Reverse Proxy
 	reverseProxy := proxy.NewReverseProxy(
 		proxy.FromConfig(cfg.Proxy),
 		proxy.RoundTripper(cfg.Upstream),
 		proxyCache,
 	)
 
+	// Initialise HTTP server
 	server := &http.Server{
 		Addr:         cfg.Server.Addr,
 		Handler:      reverseProxy,
@@ -44,9 +53,10 @@ func main() {
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
-	log.Printf("starting http server on %s", cfg.Server.Addr)
+	log.Info().Str("addr", cfg.Server.Addr).Msg("starting http server")
 
+	// Start listening and serving.
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("failed to start http server: %v", err)
+		log.Fatal().Err(err).Msg("failed to start http server")
 	}
 }

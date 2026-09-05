@@ -12,6 +12,9 @@ import (
 )
 
 const (
+	DefaultLoggingLevel  = "error"
+	DefaultLoggingFormat = "json"
+
 	DefaultServerAddr   = ":8080"
 	DefaultReadTimeout  = 30 * time.Second
 	DefaultWriteTimeout = 30 * time.Second
@@ -31,10 +34,17 @@ const (
 
 // Config is the container for all the configuration fields required by the application.
 type Config struct {
+	Logging  Logging  `json:"logging" yaml:"logging"`
 	Server   Server   `json:"server" yaml:"server"`
 	Cache    Cache    `json:"cache" yaml:"cache"`
 	Upstream Upstream `json:"upstream" yaml:"upstream"`
 	Proxy    []Proxy  `json:"proxy" yaml:"proxy"`
+}
+
+// Logging contains the configuration fields for the logger.
+type Logging struct {
+	Level  string `json:"level" yaml:"level"`
+	Format string `json:"format" yaml:"format"`
 }
 
 // Server contains the configuration fields for the HTTP server.
@@ -113,10 +123,19 @@ func (u *URL) MarshalJSON() ([]byte, error) {
 	return json.Marshal(u.String())
 }
 
+func DefaultConfig() *Config {
+	var cfg Config
+	cfg.applyDefaults()
+	return &cfg
+}
+
 // Load reads the configuration from the specified YAML file.
 func Load(path string) (*Config, error) {
 	file, err := os.Open(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("config file %q does not exist: %w", path, err)
+		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 	defer file.Close()
@@ -156,6 +175,13 @@ func (c *Config) validate() error {
 
 // applyDefaults sets default values for the configuration fields if they are not provided.
 func (c *Config) applyDefaults() {
+	if c.Logging.Level == "" {
+		c.Logging.Level = DefaultLoggingLevel
+	}
+	if c.Logging.Format == "" {
+		c.Logging.Format = DefaultLoggingFormat
+	}
+
 	if c.Server.Addr == "" {
 		c.Server.Addr = DefaultServerAddr
 	}

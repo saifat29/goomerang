@@ -4,6 +4,8 @@ import (
 	"container/list"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // MemoryLRU is an in-memory cache that supports eviction based on LRU and TTL.
@@ -38,15 +40,18 @@ func (c *MemoryLRU) Get(key CacheKey) *Entry {
 
 	item, ok := c.items[key]
 	if !ok {
+		log.Debug().Msg("cache key not found")
 		return nil
 	}
 
 	et, ok := item.Value.(*Entry)
 	if !ok {
+		log.Warn().Msg("cache entry is not a valid entry")
 		return nil
 	}
 
 	if c.expired(et) {
+		log.Debug().Msg("cache entry expired, evicting")
 		c.usedSizeBytes -= et.SizeInBytes()
 		c.rankList.Remove(item)
 		delete(c.items, key)
@@ -108,6 +113,7 @@ func (c *MemoryLRU) sweep(bytesToFree int) {
 
 		lruEntry, ok := lruItem.Value.(*Entry)
 		if !ok {
+			log.Warn().Msg("cache entry is not a valid entry, skipping sweep")
 			return
 		}
 
@@ -119,5 +125,7 @@ func (c *MemoryLRU) sweep(bytesToFree int) {
 		delete(c.items, lruEntry.Key)
 
 		c.usedSizeBytes -= lruEntry.SizeInBytes()
+
+		log.Debug().Str("key", lruEntry.Key.Hash()).Msg("evicted LRU entry")
 	}
 }
