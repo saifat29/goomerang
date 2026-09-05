@@ -18,6 +18,25 @@
 
 ## Quick Start
 
+### Download
+- **Docker**: Run it with docker
+```bash
+docker run -v ./goomerang.yml:/goomerang.yml -p 8080:8080 ghcr.io/saifat29/goomerang
+```
+
+- **Binary**: Download the latest binary from [releases](https://github.com/saifat29/goomerang/releases)
+```bash
+./goomerang
+```
+Keep the `goomerang.yml` configuration file in the same directory as the binary.
+
+
+### Local Development
+- Clone the source
+```bash
+git clone https://github.com/saifat29/goomerang.git
+```
+
 - Run locally
 ```bash
 make run
@@ -32,6 +51,14 @@ make test
 ```bash
 make all
 ```
+
+- Run in Docker
+```bash
+make docker-build
+make docker-run
+```
+
+> Note: This project uses [Semantic Versioning](https://semver.org/)
 
 ## Configuration
 
