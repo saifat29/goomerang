@@ -121,6 +121,10 @@ func serveFromCache(req *http.Request) bool {
 		return false
 	}
 
+	if req.Header.Get("Authorization") != "" {
+		return false
+	}
+
 	return true
 }
 
