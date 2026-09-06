@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/oschwald/maxminddb-golang/v2"
 	"github.com/rs/zerolog/log"
 
 	"github.com/saifat29/goomerang/cache"
 	"github.com/saifat29/goomerang/config"
 	"github.com/saifat29/goomerang/proxy"
 	"github.com/saifat29/goomerang/proxy/middleware"
+	"github.com/saifat29/goomerang/proxy/middleware/geoip"
 	"github.com/saifat29/goomerang/proxy/middleware/http_cache"
 	"github.com/saifat29/goomerang/proxy/middleware/logger"
 	"github.com/saifat29/goomerang/proxy/middleware/strip_prefix"
@@ -37,6 +39,12 @@ func main() {
 	log.Info().Msg("starting goomerang")
 	log.Info().Str("config", cfg.String()).Msg("configuration loaded")
 
+	// Open GeoIP database.
+	geoipDB, err := maxminddb.Open("assets/GeoLite2-City.mmdb")
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to open geoip database")
+	}
+
 	// Initialise cache.
 	proxyCache := cache.NewMemoryLRU(cfg.Cache.MaxSizeBytes, cfg.Cache.TTL)
 
@@ -55,6 +63,11 @@ func main() {
 	mwRegistry.Register(
 		config.MiddlewareStripPrefix, func(mwCfg *config.Middleware) middleware.Middleware {
 			return strip_prefix.New(mwCfg.StripPrefix)
+		})
+
+	mwRegistry.Register(
+		config.MiddlewareGeoIP, func(mwCfg *config.Middleware) middleware.Middleware {
+			return geoip.New(geoipDB)
 		})
 
 	// Initialize reverse proxy with routes and transport.

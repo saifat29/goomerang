@@ -8,6 +8,7 @@ const (
 	MiddlewareLogger      MiddlewareName = "logger"
 	MiddlewareHTTPCache   MiddlewareName = "http_cache"
 	MiddlewareStripPrefix MiddlewareName = "strip_prefix"
+	MiddlewareGeoIP       MiddlewareName = "geoip"
 )
 
 func (mn MiddlewareName) String() string {
@@ -19,6 +20,7 @@ type Middleware struct {
 	Logger      *Logger      `json:"logger,omitempty" yaml:"logger"`
 	HTTPCache   *HTTPCache   `json:"http_cache,omitempty" yaml:"http_cache"`
 	StripPrefix *StripPrefix `json:"strip_prefix,omitempty" yaml:"strip_prefix"`
+	GeoIP       *GeoIP       `json:"geoip,omitempty" yaml:"geoip"`
 }
 
 // Active returns the middleware that is activated through the configuration.
@@ -37,6 +39,10 @@ func (m *Middleware) Active() MiddlewareName {
 		return MiddlewareStripPrefix
 	}
 
+	if m.GeoIP != nil {
+		return MiddlewareGeoIP
+	}
+
 	return ""
 }
 
@@ -52,3 +58,6 @@ type HTTPCache struct {
 type StripPrefix struct {
 	Prefix string `json:"prefix" yaml:"prefix"`
 }
+
+// GeoIP contains the configuration fields for GeoIP.
+type GeoIP struct{}

@@ -26,9 +26,10 @@ proxy:
   - path: "/data/json"
     upstream: "http://httpbin.org"
     middlewares:
-      - logger: {}
       - strip_prefix:
           prefix: "/data"
+      - logger: {}
+      - geoip: {}
       - http_cache:
           ttl: 3s
 
@@ -38,3 +39,12 @@ proxy:
       - logger: {}
       - http_cache:
           ttl: 10s
+
+  - path: "/whoami"
+    upstream: "http://whoami.localhost:8888"
+    middlewares:
+      - strip_prefix:
+          prefix: "/whoami"
+      - logger: {}
+      - geoip: {}
+
