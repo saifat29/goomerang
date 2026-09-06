@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultLoggingLevel  = "error"
+	DefaultLoggingLevel  = "info"
 	DefaultLoggingFormat = "json"
 
 	DefaultServerAddr   = ":8080"
