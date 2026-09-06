@@ -32,6 +32,7 @@ func main() {
 	cfg, err := config.Load("goomerang.yml")
 	if err != nil {
 		log.Warn().Err(err).Msg("loading default config")
+		cfg = config.Default()
 	}
 
 	// Setup logger
