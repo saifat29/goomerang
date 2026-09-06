@@ -8,6 +8,7 @@ import (
 	"github.com/oschwald/maxminddb-golang/v2"
 	"github.com/rs/zerolog/log"
 
+	"github.com/saifat29/goomerang/assets"
 	"github.com/saifat29/goomerang/cache"
 	"github.com/saifat29/goomerang/config"
 	"github.com/saifat29/goomerang/proxy"
@@ -40,7 +41,7 @@ func main() {
 	log.Info().Str("config", cfg.String()).Msg("configuration loaded")
 
 	// Open GeoIP database.
-	geoipDB, err := maxminddb.Open("assets/GeoLite2-City.mmdb")
+	geoipDB, err := maxminddb.OpenBytes(assets.GeoIPDB)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open geoip database")
 	}
