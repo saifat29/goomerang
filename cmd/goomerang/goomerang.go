@@ -10,7 +10,7 @@ import (
 	"github.com/saifat29/goomerang/cache"
 	"github.com/saifat29/goomerang/config"
 	"github.com/saifat29/goomerang/proxy"
-	cachemw "github.com/saifat29/goomerang/proxy/middleware/cache"
+	"github.com/saifat29/goomerang/proxy/middleware/http_cache"
 	"github.com/saifat29/goomerang/proxy/middleware/logger"
 )
 
@@ -42,7 +42,7 @@ func main() {
 	// Initialise middleware registry and register middlewares.
 	mwRegistry := proxy.NewMiddlewareRegistry()
 	mwRegistry.Register("logger", logger.New())
-	mwRegistry.Register("cache", cachemw.New(proxyCache, cfg.Cache.TTL))
+	mwRegistry.Register("http_cache", http_cache.New(proxyCache, cfg.Cache.TTL))
 
 	// Initialize reverse proxy with routes and transport.
 	reverseProxy := proxy.NewReverseProxy(

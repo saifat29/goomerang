@@ -27,9 +27,9 @@ proxy:
     upstream: "http://httpbin.org"
     middlewares:
       - logger
-      - cache
+      - http_cache
   - path: "/ip"
     upstream: "http://httpbingo.org"
     middlewares:
       - logger
-      - cache
+      - http_cache

@@ -1,4 +1,4 @@
-package cache
+package http_cache
 
 import (
 	"net/http"
