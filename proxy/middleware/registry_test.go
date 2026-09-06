@@ -1,4 +1,4 @@
-package proxy
+package middleware
 
 import (
 	"net/http"
@@ -32,7 +32,7 @@ func TestChainMiddlewares(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := ChainMiddlewares(final, mw1, mw2)
+	handler := Chain(final, mw1, mw2)
 
 	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -47,7 +47,7 @@ func TestChainMiddlewaresEmpty(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	handler := ChainMiddlewares(final)
+	handler := Chain(final)
 
 	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	rec := httptest.NewRecorder()

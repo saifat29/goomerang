@@ -26,11 +26,13 @@ proxy:
   - path: "/json"
     upstream: "http://httpbin.org"
     middlewares:
-      - logger
-      - http_cache
+      - logger: {}
+      - http_cache:
+          ttl: 3s
 
   - path: "/ip"
     upstream: "http://httpbingo.org"
     middlewares:
-      - logger
-      - http_cache
+      - logger: {}
+      - http_cache:
+          ttl: 10s

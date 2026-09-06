@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/saifat29/goomerang/config"
+	"github.com/saifat29/goomerang/proxy/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,9 +42,13 @@ func TestFromConfigWithMiddlewares(t *testing.T) {
 		})
 	}
 
-	registry := MiddlewareRegistry{"test-mw": mw}
+	registry := middleware.Registry{config.MiddlewareLogger: func(_ *config.Middleware) middleware.Middleware { return mw }}
 	cfg := []*config.Proxy{
-		{Path: "/api", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}}, Middlewares: []string{"test-mw"}},
+		{
+			Path:        "/api",
+			Upstream:    &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}},
+			Middlewares: []*config.Middleware{{Logger: &config.Logger{}}},
+		},
 	}
 
 	routes := FromConfig(cfg, registry)
@@ -63,9 +68,13 @@ func TestFromConfigWithMiddlewares(t *testing.T) {
 }
 
 func TestFromConfigUnknownMiddleware(t *testing.T) {
-	registry := MiddlewareRegistry{}
+	registry := middleware.Registry{}
 	cfg := []*config.Proxy{
-		{Path: "/api", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}}, Middlewares: []string{"nonexistent"}},
+		{
+			Path:        "/api",
+			Upstream:    &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}},
+			Middlewares: []*config.Middleware{{}},
+		},
 	}
 
 	routes := FromConfig(cfg, registry)

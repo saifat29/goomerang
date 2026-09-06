@@ -4,12 +4,13 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/saifat29/goomerang/cache"
+	"github.com/saifat29/goomerang/config"
 	"github.com/saifat29/goomerang/proxy"
+	"github.com/saifat29/goomerang/proxy/middleware"
 )
 
 const (
@@ -19,49 +20,8 @@ const (
 	cacheStatusBypass = "BYPASS"
 )
 
-// Embeds the `http.ResponseWriter` interface for capturing response data.
-type responseRecorder struct {
-	http.ResponseWriter
-	statusCode  int
-	body        []byte
-	injectAfter http.Header
-}
-
-// newResponseRecorder returns new instance of `responseRecorder`.
-func newResponseRecorder(w http.ResponseWriter) *responseRecorder {
-	return &responseRecorder{
-		ResponseWriter: w,
-		statusCode:     http.StatusOK,
-		body:           make([]byte, 0),
-		injectAfter:    make(http.Header),
-	}
-}
-
-// Write is the implementation of the `http.ResponseWriter` interface method.
-func (r *responseRecorder) Write(b []byte) (int, error) {
-	r.body = append(r.body, b...)
-
-	return r.ResponseWriter.Write(b)
-}
-
-// WriteHeader is the imlplementation of the `http.ResponseWriter` interface method.
-func (r *responseRecorder) WriteHeader(code int) {
-	r.statusCode = code
-
-	proxy.AddHeaders(r.Header(), r.injectAfter)
-
-	r.ResponseWriter.WriteHeader(code)
-}
-
-// SetInjectHeader holds a header temporarily till our `responseRecoder.WriteHeader()`
-// method is called by `next.ServeHTTP()`. This is to ensure that our header is injected
-// before the `Write()` method is called.
-func (r *responseRecorder) SetInjectHeader(k, v string) {
-	r.injectAfter.Set(k, v)
-}
-
 // New returns a middleware that caches upstream responses.
-func New(c *cache.MemoryLRU, ttl time.Duration) proxy.Middleware {
+func New(cfg *config.HTTPCache, c *cache.MemoryLRU) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// BYPASS: Caching bypassed for non-cacheable requests.
@@ -107,11 +67,52 @@ func New(c *cache.MemoryLRU, ttl time.Duration) proxy.Middleware {
 				// This is to ensure that when the response is served from cache it doesn't
 				// sends the `MISS` cache status.
 				headers.Del(xCacheStatus)
-				entry := cache.NewEntry(cacheKey, rec.statusCode, headers, rec.body, ttl)
+				entry := cache.NewEntry(cacheKey, rec.statusCode, headers, rec.body, cfg.TTL)
 				c.Set(cacheKey, entry)
 			}
 		})
 	}
+}
+
+// Embeds the `http.ResponseWriter` interface for capturing response data.
+type responseRecorder struct {
+	http.ResponseWriter
+	statusCode  int
+	body        []byte
+	injectAfter http.Header
+}
+
+// newResponseRecorder returns new instance of `responseRecorder`.
+func newResponseRecorder(w http.ResponseWriter) *responseRecorder {
+	return &responseRecorder{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		body:           make([]byte, 0),
+		injectAfter:    make(http.Header),
+	}
+}
+
+// Write is the implementation of the `http.ResponseWriter` interface method.
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	r.body = append(r.body, b...)
+
+	return r.ResponseWriter.Write(b)
+}
+
+// WriteHeader is the imlplementation of the `http.ResponseWriter` interface method.
+func (r *responseRecorder) WriteHeader(code int) {
+	r.statusCode = code
+
+	proxy.AddHeaders(r.Header(), r.injectAfter)
+
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// SetInjectHeader holds a header temporarily till our `responseRecoder.WriteHeader()`
+// method is called by `next.ServeHTTP()`. This is to ensure that our header is injected
+// before the `Write()` method is called.
+func (r *responseRecorder) SetInjectHeader(k, v string) {
+	r.injectAfter.Set(k, v)
 }
 
 // serveFromCache checks if the request can be served from cache.

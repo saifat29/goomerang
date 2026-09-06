@@ -193,9 +193,9 @@ func (u *Upstream) SetDefaults() {
 
 // Proxy contains the configuration fields for the proxy.
 type Proxy struct {
-	Path        string   `json:"path" yaml:"path"`
-	Upstream    *URL     `json:"upstream" yaml:"upstream"`
-	Middlewares []string `json:"middlewares" yaml:"middlewares"`
+	Path        string        `json:"path" yaml:"path"`
+	Upstream    *URL          `json:"upstream" yaml:"upstream"`
+	Middlewares []*Middleware `json:"middlewares" yaml:"middlewares"`
 }
 
 // URL contains a parsed URL.

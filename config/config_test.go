@@ -270,7 +270,7 @@ proxy:
   - path: "/api"
     upstream: "http://example.com"
     middlewares:
-      - logger
+      - logger: {}
 `
 	path := writeTempYAML(t, content)
 	defer os.Remove(path)
@@ -291,7 +291,8 @@ proxy:
 	require.Len(t, cfg.Proxy, 1)
 	assert.Equal(t, "/api", cfg.Proxy[0].Path)
 	assert.Equal(t, "http://example.com", cfg.Proxy[0].Upstream.String())
-	assert.Equal(t, []string{"logger"}, cfg.Proxy[0].Middlewares)
+	require.Len(t, cfg.Proxy[0].Middlewares, 1)
+	assert.NotNil(t, cfg.Proxy[0].Middlewares[0].Logger)
 }
 
 func TestLoad_PartialYAML(t *testing.T) {
@@ -390,7 +391,7 @@ func writeTempYAML(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yml")
-	err := os.WriteFile(path, []byte(content), 0644)
+	err := os.WriteFile(path, []byte(content), 0o644)
 	require.NoError(t, err)
 	return path
 }

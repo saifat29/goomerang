@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/saifat29/goomerang/cache"
+	"github.com/saifat29/goomerang/config"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCacheMiddlewareMiss(t *testing.T) {
+	cfg := &config.HTTPCache{TTL: 5 * time.Minute}
 	c := cache.NewMemoryLRU(10*1024*1024, 5*time.Minute)
-	mw := New(c, 5*time.Minute)
+	mw := New(cfg, c)
 
 	upstreamCalled := false
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,8 +38,9 @@ func TestCacheMiddlewareMiss(t *testing.T) {
 }
 
 func TestCacheMiddlewareHit(t *testing.T) {
+	cfg := &config.HTTPCache{TTL: 5 * time.Minute}
 	c := cache.NewMemoryLRU(10*1024*1024, 5*time.Minute)
-	mw := New(c, 5*time.Minute)
+	mw := New(cfg, c)
 
 	callCount := 0
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,8 +72,9 @@ func TestCacheMiddlewareHit(t *testing.T) {
 }
 
 func TestCacheMiddlewareBypass(t *testing.T) {
+	cfg := &config.HTTPCache{TTL: 5 * time.Minute}
 	c := cache.NewMemoryLRU(10*1024*1024, 5*time.Minute)
-	mw := New(c, 5*time.Minute)
+	mw := New(cfg, c)
 
 	upstreamCalled := false
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

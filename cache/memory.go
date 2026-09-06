@@ -93,9 +93,9 @@ func (c *MemoryLRU) Set(key CacheKey, et *Entry) {
 // Since, we store TTL at two levels, global and entry level,
 // we consider the minimum of both to check for expiry.
 func (c *MemoryLRU) expired(et *Entry) bool {
-	effectiveTTL := et.TTL
-	if c.ttl > 0 {
-		effectiveTTL = min(c.ttl, et.TTL)
+	effectiveTTL := c.ttl
+	if et.TTL > 0 {
+		effectiveTTL = et.TTL
 	}
 
 	if time.Now().UTC().After(et.AccessedAt.Add(effectiveTTL)) {
