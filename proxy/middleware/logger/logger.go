@@ -15,6 +15,15 @@ type responseRecorder struct {
 	size       int
 }
 
+// newResponseRecorder returns new instance of `responseRecorder`.
+func newResponseRecorder(w http.ResponseWriter) *responseRecorder {
+	return &responseRecorder{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		size:           0,
+	}
+}
+
 // Write is the implementation of the `http.ResponseWriter` interface method.
 func (rr *responseRecorder) Write(body []byte) (int, error) {
 	size, err := rr.ResponseWriter.Write(body)
@@ -35,10 +44,7 @@ func New() proxy.Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now().UTC()
 
-			recorder := &responseRecorder{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-			}
+			recorder := newResponseRecorder(w)
 
 			next.ServeHTTP(recorder, r)
 

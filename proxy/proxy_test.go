@@ -226,7 +226,7 @@ func TestCopyHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			copyHeaders(tt.dst, tt.src)
+			CopyHeaders(tt.dst, tt.src)
 
 			assert.Equal(t, tt.want, tt.dst, "destination headers should match expected")
 		})

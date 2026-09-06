@@ -5,38 +5,28 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/saifat29/goomerang/cache"
 	"github.com/saifat29/goomerang/config"
 )
 
 const (
 	XForwardedFor string = "X-Forwarded-For"
-	XCacheStatus  string = "X-Cache-Status"
-
-	CacheStatusHit    string = "HIT"
-	CacheStatusMiss   string = "MISS"
-	CacheStatusBypass string = "BYPASS"
 )
 
 // ReverseProxy implements an HTTP-only proxy.
 type ReverseProxy struct {
 	routes    []Route
 	transport http.RoundTripper
-	cache     *cache.MemoryLRU
 }
 
-// NewReverseProxy returns a new ReverseProxy with the provided routes, transport, and cache.
-func NewReverseProxy(routes []Route, transport http.RoundTripper, c *cache.MemoryLRU) *ReverseProxy {
+// NewReverseProxy returns a new ReverseProxy with the provided routes and transport.
+func NewReverseProxy(routes []Route, transport http.RoundTripper) *ReverseProxy {
 	return &ReverseProxy{
 		routes:    routes,
 		transport: transport,
-		cache:     c,
 	}
 }
 
@@ -73,32 +63,6 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (p *ReverseProxy) upstreamHandler(route *Route) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		newReq := r.Clone(r.Context())
-		cacheStatus := CacheStatusBypass
-
-		if serveFromCache(newReq) {
-			log.Debug().Str("path", newReq.URL.Path).Msg("checking cache")
-			cacheKey := cache.NewCacheKey(r)
-
-			if cachedRes := p.cache.Get(cacheKey); cachedRes != nil {
-				log.Debug().Str("path", newReq.URL.Path).Msg("cache hit")
-				copyHeaders(w.Header(), cachedRes.Headers)
-
-				w.Header().Set(XCacheStatus, CacheStatusHit)
-				w.WriteHeader(cachedRes.StatusCode)
-
-				if _, err := w.Write(cachedRes.Body); err != nil {
-					log.Error().Err(err).Msg("failed to write cached response")
-					http.Error(w, "failed to write response", http.StatusInternalServerError)
-					return
-				}
-				return
-			}
-
-			log.Debug().Str("path", newReq.URL.Path).Msg("cache miss")
-			cacheStatus = CacheStatusMiss
-		} else {
-			log.Debug().Str("path", newReq.URL.Path).Msg("cache bypassed")
-		}
 
 		removeHopHeaders(newReq.Header)
 
@@ -129,19 +93,8 @@ func (p *ReverseProxy) upstreamHandler(route *Route) http.HandlerFunc {
 		}
 
 		removeHopHeaders(res.Header)
-		copyHeaders(w.Header(), res.Header)
+		CopyHeaders(w.Header(), res.Header)
 
-		if saveToCache(newReq, res) {
-			log.Debug().Str("path", newReq.URL.Path).Msg("storing response in cache")
-
-			cacheKey := cache.NewCacheKey(r)
-			p.cache.Set(
-				cacheKey,
-				cache.NewEntry(cacheKey, res.StatusCode, res.Header, resBody, 5*time.Minute),
-			)
-		}
-
-		w.Header().Set(XCacheStatus, cacheStatus)
 		w.WriteHeader(res.StatusCode)
 
 		if _, err := w.Write(resBody); err != nil {
@@ -214,8 +167,8 @@ func removeHopHeaders(header http.Header) {
 	}
 }
 
-// copyHeaders does a deep-copy of all the headers from `src` to `dst`.
-func copyHeaders(dst, src http.Header) {
+// CopyHeaders does a deep-copy of all the headers from `src` to `dst`.
+func CopyHeaders(dst, src http.Header) {
 	for key, values := range src {
 		for _, value := range values {
 			dst.Add(key, value)
@@ -223,49 +176,13 @@ func copyHeaders(dst, src http.Header) {
 	}
 }
 
-// parseCacheCtrlHeader parses the cache control headers.
-func parseCacheCtrlHeader(header http.Header) []string {
-	var result []string
-
-	for _, values := range header.Values("Cache-Control") {
-		for _, value := range strings.Split(values, ",") {
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				result = append(result, trimmed)
-			}
+// AddHeaders adds all the headers from `src` to `dst`, while keeping the
+// existing headers in `dst` intact. If a header already exists in `dst`,
+// it will be overwritten.
+func AddHeaders(dst, src http.Header) {
+	for key, values := range src {
+		for _, value := range values {
+			dst.Set(key, value)
 		}
 	}
-
-	return result
-}
-
-// serveFromCache checks if the request can be served from cache.
-func serveFromCache(req *http.Request) bool {
-	if req.Method != http.MethodGet && req.Method != http.MethodHead {
-		return false
-	}
-
-	return true
-}
-
-// saveToCache checks if the response can be saved to cache.
-func saveToCache(req *http.Request, res *http.Response) bool {
-	if req.Method != http.MethodGet && req.Method != http.MethodHead {
-		return false
-	}
-
-	if res.StatusCode != http.StatusOK {
-		return false
-	}
-
-	cacheCtrlHeader := parseCacheCtrlHeader(res.Header)
-
-	if slices.Contains(cacheCtrlHeader, "private") ||
-		slices.Contains(cacheCtrlHeader, "no-cache") ||
-		slices.Contains(cacheCtrlHeader, "no-store") ||
-		res.Header.Get("Set-Cookie") != "" ||
-		req.Header.Get("Authorization") != "" {
-		return false
-	}
-
-	return true
 }
