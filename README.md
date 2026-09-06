@@ -9,14 +9,17 @@
 ## Features
 
 - **Multi-upstream routing** - route requests to different upstream servers based on path prefixes (longest match wins)
-- **In-memory LRU caching** - cache GET/HEAD responses with configurable TTL and max size
-- **Pluggable middleware system** - onion-style middleware chain, configurable per proxy
+- **In-memory LRU caching** - cache GET/HEAD responses with configurable global TTL and max size, and per-route TTL
+- **Pluggable middleware system** - onion-style middleware chain, configurable per route with individual configs
+- **Prefix stripping** - `strip_prefix` middleware removes path prefixes before forwarding to upstream
+- **GeoIP lookup** - `geoip` middleware injects geoip headers using an embedded [MaxMind GeoLite2-City](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) database
 - **Structured logging** - Fast logging using [Zerolog](https://github.com/rs/zerolog) with configurable levels (`trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`) and format (`json`, `console`)
-- **YAML configuration** - single config file with sensible defaults for all settings
+- **YAML configuration** - single config file `goomerang.yml` with sensible defaults for all settings
 - **Cache-Control awareness _(sort of, not 100% as per HTTP spec)_** - respects `private`, `no-cache`, `no-store` directives and skips caching for responses with `Set-Cookie` and for requests with `Authorization`
 - **Hop-by-hop header handling** - properly strips and forwards headers per HTTP spec
 - **X-Forwarded-For** - injects client IP for proper identification
 - **X-Cache-Status** - response header showing `HIT`, `MISS`, or `BYPASS`
+- **Embedded GeoIP database** - GeoIP database is compiled into the binary, no external files needed at runtime
 
 ## Quick Start
 
@@ -97,39 +100,103 @@ upstream:
   idle_conn_timeout: 90s
 
 proxy:
-  - path: "/json"
+  - path: "/data/json"
     upstream: "http://httpbin.org"
     middlewares:
-      - logger
-      - cache
+      - strip_prefix:
+          prefix: "/data"
+      - logger: {}
+      - geoip: {}
+      - http_cache:
+          ttl: 3s
+
   - path: "/ip"
     upstream: "http://httpbingo.org"
     middlewares:
-      - logger
-      - cache
+      - logger: {}
+      - http_cache:
+          ttl: 10s
+
+  - path: "/whoami"
+    upstream: "http://whoami.localhost:8888"
+    middlewares:
+      - strip_prefix:
+          prefix: "/whoami"
+      - logger: {}
+      - geoip: {}
 ```
+
+All fields have sensible defaults. Any omitted field will use its default value.
+
+> Note: All fields have defaults, EXCEPT the `proxy` block and it's children. You'll have to configure the proxy upstream servers for the reverse proxy to work.
 
 ## Middlewares
 
-| Name | Description |
-|------|-------------|
-| `logger` | Logs each request with method, path, remote address, user agent, duration, status, and response size |
-| `cache` | Caches GET/HEAD responses in memory. Adds `X-Cache-Status` header (`HIT`, `MISS`, or `BYPASS`) |
+Middlewares are applied in the order listed in the `middlewares` list for each proxy route. Each proxy route can have its own independent middleware configuration.
 
-Middlewares are applied in the order listed in the `middlewares` list.
+| Middleware | Config Fields | Description |
+|-----------|---------------|-------------|
+| `logger` | (none) | Logs each request with method, path, remote address, user agent, duration, status, and response size |
+| `http_cache` | `ttl` | Caches GET/HEAD responses in memory with per-route TTL. Adds `X-Cache-Status` header (`HIT`, `MISS`, or `BYPASS`) |
+| `strip_prefix` | `prefix` | Strips the given prefix from the request path before forwarding to upstream |
+| `geoip` | (none) | Looks up client IP in the embedded MaxMind GeoLite2-City database and injects `X-GeoIP-*` headers |
+
+### Middleware Configuration
+
+Middlewares with configuration use a YAML map syntax:
+
+```yaml
+middlewares:
+  - strip_prefix:
+      prefix: "/whoami" # prefix to strip
+  - logger: {}          # no config
+  - geoip: {}           # no config
+  - http_cache:
+      ttl: 5s           # per-route cache TTL
+```
+
+### Middleware Ordering
+
+Middleware executes in the order listed. Place `strip_prefix` before other middlewares if you need the path modified before caching or logging:
+
+```yaml
+middlewares:
+  - strip_prefix:
+      prefix: "/whoami"
+  - logger: {}
+  - geoip: {}
+  - http_cache:
+      ttl: 5s
+```
+
+### GeoIP Headers
+
+The `geoip` middleware injects the following headers into the request:
+
+| Header |  Example |
+|--------|----------|
+| `X-GeoIP-Country` | `US` |
+| `X-GeoIP-Country-Name` | `United States` |
+| `X-GeoIP-City` | `Mountain View` |
+| `X-GeoIP-Region` | `California` |
+| `X-GeoIP-Latitude` | `37.3861` |
+| `X-GeoIP-Longitude` | `-122.0838` |
+
+> **Note**: Not all IPs have city or region data in the GeoLite2-City database. Missing fields will not have headers set.
 
 ## How it works
 
-Incoming requests are matched against configured paths. A simple route matching method (longest prefix match) is used to determine the middleware chain to execute and then forward the request to the correct upstream.
+Incoming requests are matched against configured paths using longest prefix match. The matched route determines the middleware chain to execute and the upstream to forward to.
 
-The request flows through the middleware chain (e.g., logger -> cache -> upstream handler), then gets forwarded to the upstream server. The response travels back through the chain in reverse order.
+The request flows through the middleware chain in order, then gets forwarded to the upstream server. The response travels back through the chain in reverse order (_like a boomerang, hence the name_).
 
-
-The complete cycle looks like this (_like a boomerang_)-
 ```
-Client -> :8080/hello -> [route] -> [logger] -> [cache] -> [upstream server]
-
-Client <- :8080/hello <- [route] <- [logger] <- [cache] <- [upstream server]
+Client -> :8080/hello/whoami
+  -> [strip_prefix "/hello"] -> path becomes /whoami
+  -> [geoip]                 -> injects X-GeoIP-* headers
+  -> [logger]                -> logs request
+  -> [http_cache]            -> serves from cache (HIT) or forwards upstream (MISS)
+  -> [upstream server]
 ```
 
 ## ⚠️ Check this Wiki to see the exact plan I made and followed for this project.
