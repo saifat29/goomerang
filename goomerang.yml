@@ -28,6 +28,7 @@ proxy:
     middlewares:
       - logger
       - http_cache
+
   - path: "/ip"
     upstream: "http://httpbingo.org"
     middlewares:

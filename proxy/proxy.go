@@ -31,7 +31,7 @@ func NewReverseProxy(routes []Route, transport http.RoundTripper) *ReverseProxy 
 }
 
 // RoundTripper returns a new http.RoundTripper with the provided upstream configuration.
-func RoundTripper(cfg config.Upstream) http.RoundTripper {
+func RoundTripper(cfg *config.Upstream) http.RoundTripper {
 	return &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   cfg.DialTimeout,

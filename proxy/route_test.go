@@ -12,7 +12,7 @@ import (
 )
 
 func TestFromConfig(t *testing.T) {
-	cfg := []config.Proxy{
+	cfg := []*config.Proxy{
 		{Path: "/api", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}}},
 		{Path: "/static", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "other.com"}}},
 	}
@@ -27,7 +27,7 @@ func TestFromConfig(t *testing.T) {
 }
 
 func TestFromConfigEmpty(t *testing.T) {
-	routes := FromConfig([]config.Proxy{}, nil)
+	routes := FromConfig([]*config.Proxy{}, nil)
 
 	assert.Empty(t, routes)
 }
@@ -42,7 +42,7 @@ func TestFromConfigWithMiddlewares(t *testing.T) {
 	}
 
 	registry := MiddlewareRegistry{"test-mw": mw}
-	cfg := []config.Proxy{
+	cfg := []*config.Proxy{
 		{Path: "/api", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}}, Middlewares: []string{"test-mw"}},
 	}
 
@@ -64,7 +64,7 @@ func TestFromConfigWithMiddlewares(t *testing.T) {
 
 func TestFromConfigUnknownMiddleware(t *testing.T) {
 	registry := MiddlewareRegistry{}
-	cfg := []config.Proxy{
+	cfg := []*config.Proxy{
 		{Path: "/api", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}}, Middlewares: []string{"nonexistent"}},
 	}
 

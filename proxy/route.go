@@ -19,7 +19,7 @@ type Route struct {
 
 // FromConfig converts a slice of config.Proxy to a slice of Route,
 // and fetching the correct middleware from the registry.
-func FromConfig(cfg []config.Proxy, registry MiddlewareRegistry) []Route {
+func FromConfig(cfg []*config.Proxy, registry MiddlewareRegistry) []Route {
 	routes := make([]Route, len(cfg))
 
 	for i, r := range cfg {

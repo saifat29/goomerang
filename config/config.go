@@ -34,17 +34,91 @@ const (
 
 // Config is the container for all the configuration fields required by the application.
 type Config struct {
-	Logging  Logging  `json:"logging" yaml:"logging"`
-	Server   Server   `json:"server" yaml:"server"`
-	Cache    Cache    `json:"cache" yaml:"cache"`
-	Upstream Upstream `json:"upstream" yaml:"upstream"`
-	Proxy    []Proxy  `json:"proxy" yaml:"proxy"`
+	Logging  *Logging  `json:"logging" yaml:"logging"`
+	Server   *Server   `json:"server" yaml:"server"`
+	Cache    *Cache    `json:"cache" yaml:"cache"`
+	Upstream *Upstream `json:"upstream" yaml:"upstream"`
+	Proxy    []*Proxy  `json:"proxy" yaml:"proxy"`
+}
+
+// Default returns a Config with all fields populated with defaults values.
+func Default() *Config {
+	cfg := &Config{
+		Logging:  &Logging{},
+		Server:   &Server{},
+		Cache:    &Cache{},
+		Upstream: &Upstream{},
+	}
+	cfg.SetDefaults()
+
+	return cfg
+}
+
+// Load reads the configuration from the specified YAML file.
+// It handles validation, and merging with default values.
+func Load(path string) (*Config, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("config file %q does not exist: %w", path, err)
+		}
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	defer file.Close()
+
+	var userCfg Config
+	if err = yaml.NewDecoder(file).Decode(&userCfg); err != nil {
+		return nil, fmt.Errorf("failed to decode YAML: %w", err)
+	}
+
+	cfg := Default()
+	cfg = Merge(cfg, &userCfg)
+	cfg.SetDefaults()
+
+	if err := Validate(cfg); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func (c *Config) SetDefaults() {
+	if c.Logging != nil {
+		c.Logging.SetDefaults()
+	}
+	if c.Server != nil {
+		c.Server.SetDefaults()
+	}
+	if c.Cache != nil {
+		c.Cache.SetDefaults()
+	}
+	if c.Upstream != nil {
+		c.Upstream.SetDefaults()
+	}
+}
+
+func (c *Config) String() string {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return fmt.Sprintf("error formatting config: %v", err)
+	}
+
+	return string(b)
 }
 
 // Logging contains the configuration fields for the logger.
 type Logging struct {
 	Level  string `json:"level" yaml:"level"`
 	Format string `json:"format" yaml:"format"`
+}
+
+func (l *Logging) SetDefaults() {
+	if l.Level == "" {
+		l.Level = DefaultLoggingLevel
+	}
+	if l.Format == "" {
+		l.Format = DefaultLoggingFormat
+	}
 }
 
 // Server contains the configuration fields for the HTTP server.
@@ -55,10 +129,34 @@ type Server struct {
 	IdleTimeout  time.Duration `json:"idle_timeout" yaml:"idle_timeout"`
 }
 
+func (s *Server) SetDefaults() {
+	if s.Addr == "" {
+		s.Addr = DefaultServerAddr
+	}
+	if s.ReadTimeout == 0 {
+		s.ReadTimeout = DefaultReadTimeout
+	}
+	if s.WriteTimeout == 0 {
+		s.WriteTimeout = DefaultWriteTimeout
+	}
+	if s.IdleTimeout == 0 {
+		s.IdleTimeout = DefaultIdleTimeout
+	}
+}
+
 // Cache contains the configuration fields for the cache.
 type Cache struct {
 	MaxSizeBytes int           `json:"max_size_bytes" yaml:"max_size_bytes"`
 	TTL          time.Duration `json:"ttl" yaml:"ttl"`
+}
+
+func (c *Cache) SetDefaults() {
+	if c.MaxSizeBytes == 0 {
+		c.MaxSizeBytes = DefaultCacheSize
+	}
+	if c.TTL == 0 {
+		c.TTL = DefaultCacheTTL
+	}
 }
 
 // Upstream contains the configuration fields for the upstream server.
@@ -72,20 +170,32 @@ type Upstream struct {
 	IdleConnTimeout     time.Duration `json:"idle_conn_timeout" yaml:"idle_conn_timeout"`
 }
 
+func (u *Upstream) SetDefaults() {
+	if u.DialTimeout == 0 {
+		u.DialTimeout = DefaultDialTimeout
+	}
+	if u.KeepAliveProbes == 0 {
+		u.KeepAliveProbes = DefaultKeepAliveProbe
+	}
+	if u.MaxIdleConns == 0 {
+		u.MaxIdleConns = DefaultMaxIdleConns
+	}
+	if u.MaxIdleConnsPerHost == 0 {
+		u.MaxIdleConnsPerHost = DefaultMaxIdleConnsPerHost
+	}
+	if u.MaxConnsPerHost == 0 {
+		u.MaxConnsPerHost = DefaultMaxConnsPerHost
+	}
+	if u.IdleConnTimeout == 0 {
+		u.IdleConnTimeout = DefaultIdleConnTimeout
+	}
+}
+
 // Proxy contains the configuration fields for the proxy.
 type Proxy struct {
 	Path        string   `json:"path" yaml:"path"`
 	Upstream    *URL     `json:"upstream" yaml:"upstream"`
 	Middlewares []string `json:"middlewares" yaml:"middlewares"`
-}
-
-func (c *Config) String() string {
-	b, err := json.Marshal(c)
-	if err != nil {
-		return fmt.Sprintf("error formatting config: %v", err)
-	}
-
-	return string(b)
 }
 
 // URL contains a parsed URL.
@@ -122,104 +232,4 @@ func (u *URL) MarshalJSON() ([]byte, error) {
 		return nil, nil
 	}
 	return json.Marshal(u.String())
-}
-
-func DefaultConfig() *Config {
-	var cfg Config
-	cfg.applyDefaults()
-	return &cfg
-}
-
-// Load reads the configuration from the specified YAML file.
-func Load(path string) (*Config, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("config file %q does not exist: %w", path, err)
-		}
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-	defer file.Close()
-
-	var cfg Config
-	if err = yaml.NewDecoder(file).Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to decode YAML: %w", err)
-	}
-
-	if err = cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-
-	cfg.applyDefaults()
-
-	return &cfg, err
-}
-
-// validate checks if the required fields in the configuration are set
-// and valid and returns an error if not.
-func (c *Config) validate() error {
-	if len(c.Proxy) == 0 {
-		return errors.New("at least one proxy configuration is required")
-	}
-
-	for _, proxy := range c.Proxy {
-		if proxy.Path == "" {
-			return errors.New("proxy path is required")
-		}
-		if proxy.Upstream == nil || proxy.Upstream.URL == nil {
-			return errors.New("proxy upstream URL is required")
-		}
-	}
-
-	return nil
-}
-
-// applyDefaults sets default values for the configuration fields if they are not provided.
-func (c *Config) applyDefaults() {
-	if c.Logging.Level == "" {
-		c.Logging.Level = DefaultLoggingLevel
-	}
-	if c.Logging.Format == "" {
-		c.Logging.Format = DefaultLoggingFormat
-	}
-
-	if c.Server.Addr == "" {
-		c.Server.Addr = DefaultServerAddr
-	}
-	if c.Server.ReadTimeout == 0 {
-		c.Server.ReadTimeout = DefaultReadTimeout
-	}
-	if c.Server.WriteTimeout == 0 {
-		c.Server.WriteTimeout = DefaultWriteTimeout
-	}
-	if c.Server.IdleTimeout == 0 {
-		c.Server.IdleTimeout = DefaultIdleTimeout
-	}
-
-	if c.Cache.MaxSizeBytes < DefaultCacheSize {
-		c.Cache.MaxSizeBytes = DefaultCacheSize
-	}
-	if c.Cache.TTL == 0 {
-		c.Cache.TTL = DefaultCacheTTL
-	}
-
-	if c.Upstream.DialTimeout == 0 {
-		c.Upstream.DialTimeout = DefaultDialTimeout
-	}
-	if c.Upstream.KeepAliveProbes == 0 {
-		c.Upstream.KeepAliveProbes = DefaultKeepAliveProbe
-	}
-
-	if c.Upstream.MaxIdleConns == 0 {
-		c.Upstream.MaxIdleConns = DefaultMaxIdleConns
-	}
-	if c.Upstream.MaxIdleConnsPerHost == 0 {
-		c.Upstream.MaxIdleConnsPerHost = DefaultMaxIdleConnsPerHost
-	}
-	if c.Upstream.MaxConnsPerHost == 0 {
-		c.Upstream.MaxConnsPerHost = DefaultMaxConnsPerHost
-	}
-	if c.Upstream.IdleConnTimeout == 0 {
-		c.Upstream.IdleConnTimeout = DefaultIdleConnTimeout
-	}
 }
