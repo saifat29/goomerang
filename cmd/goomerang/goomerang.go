@@ -13,6 +13,7 @@ import (
 	"github.com/saifat29/goomerang/proxy/middleware"
 	"github.com/saifat29/goomerang/proxy/middleware/http_cache"
 	"github.com/saifat29/goomerang/proxy/middleware/logger"
+	"github.com/saifat29/goomerang/proxy/middleware/strip_prefix"
 )
 
 func main() {
@@ -41,12 +42,20 @@ func main() {
 
 	// Initialise middleware registry and register middlewares.)
 	mwRegistry := middleware.NewRegistry()
-	mwRegistry.Register("logger", func(mwCfg *config.Middleware) middleware.Middleware {
-		return logger.New(mwCfg.Logger)
-	})
-	mwRegistry.Register("http_cache", func(mwCfg *config.Middleware) middleware.Middleware {
-		return http_cache.New(mwCfg.HTTPCache, proxyCache)
-	})
+	mwRegistry.Register(
+		config.MiddlewareLogger, func(mwCfg *config.Middleware) middleware.Middleware {
+			return logger.New(mwCfg.Logger)
+		})
+
+	mwRegistry.Register(
+		config.MiddlewareHTTPCache, func(mwCfg *config.Middleware) middleware.Middleware {
+			return http_cache.New(mwCfg.HTTPCache, proxyCache)
+		})
+
+	mwRegistry.Register(
+		config.MiddlewareStripPrefix, func(mwCfg *config.Middleware) middleware.Middleware {
+			return strip_prefix.New(mwCfg.StripPrefix)
+		})
 
 	// Initialize reverse proxy with routes and transport.
 	reverseProxy := proxy.NewReverseProxy(
