@@ -85,19 +85,12 @@ func (p *ReverseProxy) upstreamHandler(route *Route) http.HandlerFunc {
 		}
 		defer res.Body.Close()
 
-		resBody, err := io.ReadAll(res.Body)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to read upstream response body")
-			http.Error(w, "failed to read response body from upstream server", http.StatusInternalServerError)
-			return
-		}
-
 		removeHopHeaders(res.Header)
 		CopyHeaders(w.Header(), res.Header)
 
 		w.WriteHeader(res.StatusCode)
 
-		if _, err := w.Write(resBody); err != nil {
+		if _, err := io.Copy(w, res.Body); err != nil {
 			log.Error().Err(err).Msg("failed to write response")
 			http.Error(w, "failed to write response", http.StatusInternalServerError)
 			return
