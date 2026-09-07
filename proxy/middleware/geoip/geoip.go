@@ -58,7 +58,7 @@ func New(db *maxminddb.Reader) middleware.Middleware {
 				return
 			}
 
-			injectHeaders(w.Header(), rec)
+			injectHeaders(r.Header, rec)
 			next.ServeHTTP(w, r)
 		})
 	}
