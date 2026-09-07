@@ -3,6 +3,8 @@ package cache
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -18,9 +20,11 @@ type CacheKey struct {
 
 // NewCacheKey extracts relevant fields from the http.Request and creates the CacheKey.
 func NewCacheKey(r *http.Request) CacheKey {
+	normalisedURL := normaliseURL(r.URL.String())
+
 	return CacheKey{
 		Method:   r.Method,
-		URL:      r.URL.String(),
+		URL:      normalisedURL,
 		Encoding: r.Header.Get("Accept-Encoding"),
 		Language: r.Header.Get("Accept-Language"),
 	}
@@ -36,6 +40,19 @@ func (k CacheKey) String() string {
 func (k CacheKey) Hash() string {
 	hash := xxhash.Sum64String(fmt.Sprintf("%s%s%s%s", k.Method, k.URL, k.Encoding, k.Language))
 	return fmt.Sprintf("%x", hash)
+}
+
+// normaliseURL lowercases only the hostname of the URL.
+// The `scheme` is already normalised by net/http, and other fields must
+// preserve their casing.
+func normaliseURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return strings.ToLower(rawURL)
+	}
+	u.Host = strings.ToLower(u.Host)
+
+	return u.String()
 }
 
 // Entry contains the response fields to be cached.

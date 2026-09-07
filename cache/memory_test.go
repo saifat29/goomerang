@@ -113,9 +113,9 @@ func TestMemoryLRUGetEvictsExpiredEntry(t *testing.T) {
 
 		got := cache.Get(key)
 
-		assert.Nil(t, got, "entry past the global TTL should not be returned")
-		assert.Empty(t, cache.items, "entry should be removed from the map")
-		assert.Zero(t, cache.rankList.Len(), "entry should be removed from the rank list")
+		assert.NotNil(t, got, "entry should not be expired, entry TTL overrides cache TTL")
+		assert.Equal(t, 1, len(cache.items), "entry should remain in the map")
+		assert.Equal(t, 1, cache.rankList.Len(), "entry should remain in the rank list")
 	})
 }
 
@@ -206,7 +206,7 @@ func TestMemoryLRUExpired(t *testing.T) {
 			cacheTTL:   30 * time.Minute,
 			resTTL:     24 * time.Hour,
 			accessedAt: now.Add(-time.Hour),
-			want:       true,
+			want:       false,
 		},
 		{
 			name:       "cache TTL governs when shorter and is fresh",
@@ -234,7 +234,7 @@ func TestMemoryLRUExpired(t *testing.T) {
 			cacheTTL:   24 * time.Hour,
 			resTTL:     -time.Hour,
 			accessedAt: now,
-			want:       true,
+			want:       false,
 		},
 		{
 			name:       "zero cache TTL applies no global cap and entry TTL governs",

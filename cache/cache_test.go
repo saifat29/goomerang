@@ -3,10 +3,22 @@ package cache
 import (
 	"encoding/hex"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func newTestKey(method, rawURL, encoding, language string) CacheKey {
+	req := httptest.NewRequest(method, rawURL, nil)
+	if encoding != "" {
+		req.Header.Set("Accept-Encoding", encoding)
+	}
+	if language != "" {
+		req.Header.Set("Accept-Language", language)
+	}
+	return NewCacheKey(req)
+}
 
 func TestCacheKeyString(t *testing.T) {
 	tests := []struct {
@@ -16,40 +28,18 @@ func TestCacheKeyString(t *testing.T) {
 	}{
 		{
 			name: "concatenates all fields",
-			key: CacheKey{
-				Method:   "GET",
-				URL:      "http://example.com/users",
-				Encoding: "gzip",
-				Language: "en-US",
-			},
+			key:  newTestKey("GET", "http://example.com/users", "gzip", "en-US"),
 			want: "GEThttp://example.com/usersgzipen-US",
 		},
 		{
-			name: "returns empty string for zero value key",
-			key:  CacheKey{},
-			want: "",
-		},
-		{
-			name: "handles empty URL encoding and language",
-			key: CacheKey{
-				Method: "POST",
-				URL:    "http://example.com/orders",
-			},
+			name: "handles empty encoding and language",
+			key:  newTestKey("POST", "http://example.com/orders", "", ""),
 			want: "POSThttp://example.com/orders",
 		},
 		{
-			name: "handles only encoding set",
-			key: CacheKey{
-				Encoding: "br",
-			},
-			want: "br",
-		},
-		{
-			name: "handles only language set",
-			key: CacheKey{
-				Language: "de-DE",
-			},
-			want: "de-DE",
+			name: "lowercases hostname but preserves path casing",
+			key:  newTestKey("GET", "http://EXAMPLE.COM/Users", "", ""),
+			want: "GEThttp://example.com/Users",
 		},
 	}
 
@@ -62,7 +52,7 @@ func TestCacheKeyString(t *testing.T) {
 
 func TestCacheKeyHash(t *testing.T) {
 	t.Run("is deterministic for the same key", func(t *testing.T) {
-		key := CacheKey{Method: "GET", URL: "http://example.com/users", Encoding: "gzip", Language: "en-US"}
+		key := newTestKey("GET", "http://example.com/users", "gzip", "en-US")
 
 		first := key.Hash()
 		for range 10 {
@@ -71,7 +61,7 @@ func TestCacheKeyHash(t *testing.T) {
 	})
 
 	t.Run("produces a fixed length hex string", func(t *testing.T) {
-		key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+		key := newTestKey("GET", "http://example.com/users", "", "")
 
 		got := key.Hash()
 
@@ -81,7 +71,7 @@ func TestCacheKeyHash(t *testing.T) {
 	})
 
 	t.Run("differs for distinct keys", func(t *testing.T) {
-		base := CacheKey{Method: "GET", URL: "http://example.com/users", Encoding: "gzip", Language: "en-US"}
+		base := newTestKey("GET", "http://example.com/users", "gzip", "en-US")
 
 		tests := []struct {
 			name string
@@ -89,23 +79,19 @@ func TestCacheKeyHash(t *testing.T) {
 		}{
 			{
 				name: "different method",
-				key:  CacheKey{Method: "POST", URL: base.URL, Encoding: base.Encoding, Language: base.Language},
+				key:  newTestKey("POST", base.URL, base.Encoding, base.Language),
 			},
 			{
 				name: "different URL",
-				key:  CacheKey{Method: base.Method, URL: "http://example.com/orders", Encoding: base.Encoding, Language: base.Language},
+				key:  newTestKey(base.Method, "http://example.com/orders", base.Encoding, base.Language),
 			},
 			{
 				name: "different encoding",
-				key:  CacheKey{Method: base.Method, URL: base.URL, Encoding: "br", Language: base.Language},
+				key:  newTestKey(base.Method, base.URL, "br", base.Language),
 			},
 			{
 				name: "different language",
-				key:  CacheKey{Method: base.Method, URL: base.URL, Encoding: base.Encoding, Language: "de-DE"},
-			},
-			{
-				name: "empty key",
-				key:  CacheKey{},
+				key:  newTestKey(base.Method, base.URL, base.Encoding, "de-DE"),
 			},
 		}
 
@@ -117,9 +103,23 @@ func TestCacheKeyHash(t *testing.T) {
 	})
 
 	t.Run("same hash as hashing the String output", func(t *testing.T) {
-		key := CacheKey{Method: "GET", URL: "http://example.com/users", Encoding: "gzip", Language: "en-US"}
+		key := newTestKey("GET", "http://example.com/users", "gzip", "en-US")
 
 		assert.NotEqual(t, key.String(), key.Hash(), "hash should not leak the raw String output")
+	})
+
+	t.Run("same key for different-case hostnames", func(t *testing.T) {
+		a := newTestKey("GET", "http://EXAMPLE.COM/users", "", "")
+		b := newTestKey("GET", "http://example.com/users", "", "")
+
+		assert.Equal(t, a.Hash(), b.Hash())
+	})
+
+	t.Run("different keys for different-case paths", func(t *testing.T) {
+		a := newTestKey("GET", "http://example.com/Users", "", "")
+		b := newTestKey("GET", "http://example.com/users", "", "")
+
+		assert.NotEqual(t, a.Hash(), b.Hash())
 	})
 }
 
