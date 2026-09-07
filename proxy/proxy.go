@@ -116,6 +116,13 @@ func (p *ReverseProxy) findRoute(path string) *Route {
 	return bestMatch
 }
 
+// Shutdown releases/closes any resources utilised by the ReverseProxy.
+func (p *ReverseProxy) Shutdown() {
+	if tr, ok := p.transport.(*http.Transport); ok {
+		tr.CloseIdleConnections()
+	}
+}
+
 // buildUpstreamURL creates the upstream URL that will be used for sending
 // the request. It accepts the request and upstream URL and creates the final URL.
 func buildUpstreamURL(reqURL, upstreamURL *url.URL) *url.URL {

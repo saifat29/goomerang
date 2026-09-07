@@ -85,6 +85,7 @@ server:
   read_timeout: 30s
   write_timeout: 30s
   idle_timeout: 30s
+  shutdown_timeout: 10s
 
 cache:
   max_size_bytes: 104857600   # 100 MB

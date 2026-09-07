@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
+	"os/signal"
+	"syscall"
 
 	"github.com/oschwald/maxminddb-golang/v2"
 	"github.com/rs/zerolog/log"
@@ -20,12 +24,22 @@ import (
 )
 
 func main() {
+	if err := run(context.Background()); err != nil {
+		log.Fatal().Err(err).Msg("failed to start goomerang")
+	}
+	log.Info().Msg("goomerang stopped")
+}
+
+func run(ctx context.Context) error {
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Printf("goomerang %s\n", version)
-		return
+		return nil
 	}
 
 	// Load config, if err then use default config.
@@ -44,8 +58,9 @@ func main() {
 	// Open GeoIP database.
 	geoipDB, err := maxminddb.OpenBytes(assets.GeoIPDB)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to open geoip database")
+		return fmt.Errorf("failed to open geoip database: %w", err)
 	}
+	defer geoipDB.Close()
 
 	// Initialise cache.
 	proxyCache := cache.NewMemoryLRU(cfg.Cache.MaxSizeBytes, cfg.Cache.TTL)
@@ -77,20 +92,47 @@ func main() {
 		proxy.FromConfig(cfg.Proxy, mwRegistry),
 		proxy.RoundTripper(cfg.Upstream),
 	)
+	defer reverseProxy.Shutdown()
 
-	// Initialise HTTP server
+	// Start the HTTP server.
+	if err := runServer(ctx, cfg.Server, reverseProxy); err != nil {
+		return fmt.Errorf("failed to start http server: %w", err)
+	}
+
+	return nil
+}
+
+func runServer(ctx context.Context, cfg *config.Server, handler http.Handler) error {
 	server := &http.Server{
-		Addr:         cfg.Server.Addr,
-		Handler:      reverseProxy,
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
-		IdleTimeout:  cfg.Server.IdleTimeout,
+		Addr:         cfg.Addr,
+		Handler:      handler,
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		IdleTimeout:  cfg.IdleTimeout,
 	}
 
-	log.Info().Str("addr", cfg.Server.Addr).Msg("starting http server")
+	errCh := make(chan error, 1)
+	go func() {
+		log.Info().Str("addr", cfg.Addr).Msg("starting http server")
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	}()
 
-	// Start listening and serving.
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal().Err(err).Msg("failed to start http server")
+	select {
+	case err := <-errCh:
+		log.Error().Err(err).Msg("failed to start http server")
+		return err
+	case <-ctx.Done():
+		log.Info().Msg("starting graceful shutdown")
 	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("failed to shutdown http server gracefully")
+	}
+
+	return nil
 }

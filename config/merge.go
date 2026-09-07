@@ -51,6 +51,9 @@ func mergeServer(base, user *Server) {
 	if user.IdleTimeout != 0 {
 		base.IdleTimeout = user.IdleTimeout
 	}
+	if user.ShutdownTimeout != 0 {
+		base.ShutdownTimeout = user.ShutdownTimeout
+	}
 }
 
 func mergeCache(base, user *Cache) {

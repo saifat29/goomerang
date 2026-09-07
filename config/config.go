@@ -15,10 +15,11 @@ const (
 	DefaultLoggingLevel  = "info"
 	DefaultLoggingFormat = "json"
 
-	DefaultServerAddr   = ":8080"
-	DefaultReadTimeout  = 30 * time.Second
-	DefaultWriteTimeout = 30 * time.Second
-	DefaultIdleTimeout  = 30 * time.Second
+	DefaultServerAddr      = ":8080"
+	DefaultReadTimeout     = 30 * time.Second
+	DefaultWriteTimeout    = 30 * time.Second
+	DefaultIdleTimeout     = 30 * time.Second
+	DefaultShutdownTimeout = 10 * time.Second
 
 	DefaultCacheSize = 100 * (1 << 20)
 	DefaultCacheTTL  = 5 * time.Minute
@@ -123,10 +124,11 @@ func (l *Logging) SetDefaults() {
 
 // Server contains the configuration fields for the HTTP server.
 type Server struct {
-	Addr         string        `json:"addr" yaml:"addr"`
-	ReadTimeout  time.Duration `json:"read_timeout" yaml:"read_timeout"`
-	WriteTimeout time.Duration `json:"write_timeout" yaml:"write_timeout"`
-	IdleTimeout  time.Duration `json:"idle_timeout" yaml:"idle_timeout"`
+	Addr            string        `json:"addr" yaml:"addr"`
+	ReadTimeout     time.Duration `json:"read_timeout" yaml:"read_timeout"`
+	WriteTimeout    time.Duration `json:"write_timeout" yaml:"write_timeout"`
+	IdleTimeout     time.Duration `json:"idle_timeout" yaml:"idle_timeout"`
+	ShutdownTimeout time.Duration `json:"shutdown_timeout" yaml:"shutdown_timeout"`
 }
 
 func (s *Server) SetDefaults() {
@@ -141,6 +143,9 @@ func (s *Server) SetDefaults() {
 	}
 	if s.IdleTimeout == 0 {
 		s.IdleTimeout = DefaultIdleTimeout
+	}
+	if s.ShutdownTimeout == 0 {
+		s.ShutdownTimeout = DefaultShutdownTimeout
 	}
 }
 

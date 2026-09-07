@@ -15,6 +15,9 @@ func Validate(cfg *Config) error {
 		if cfg.Server.IdleTimeout < 0 {
 			return fmt.Errorf("server.idle_timeout must be non-negative")
 		}
+		if cfg.Server.ShutdownTimeout < 0 {
+			return fmt.Errorf("server.shutdown_timeout must be non-negative")
+		}
 	}
 
 	if cfg.Cache != nil {
