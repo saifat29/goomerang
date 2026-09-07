@@ -1,13 +1,13 @@
 package geoip
 
 import (
+	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
 
 	"github.com/oschwald/maxminddb-golang/v2"
 	"github.com/rs/zerolog/log"
-	"github.com/tomasen/realip"
 
 	"github.com/saifat29/goomerang/proxy/middleware"
 )
@@ -44,16 +44,23 @@ type record struct {
 func New(db *maxminddb.Reader) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			clientIP, err := netip.ParseAddr(realip.FromRequest(r))
+			clientIPStr, _, err := net.SplitHostPort(r.RemoteAddr)
 			if err != nil {
-				log.Debug().Err(err).Str("ip", clientIP.String()).Msg("invalid ip")
+				log.Debug().Err(err).Str("ip", clientIPStr).Msg("invalid ip")
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			clientIP, err := netip.ParseAddr(clientIPStr)
+			if err != nil {
+				log.Debug().Err(err).Str("ip", clientIPStr).Msg("invalid ip")
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			var rec record
 			if err := db.Lookup(clientIP).Decode(&rec); err != nil {
-				log.Debug().Err(err).Str("ip", clientIP.String()).Msg("geoip lookup failed")
+				log.Debug().Err(err).Str("ip", clientIPStr).Msg("geoip lookup failed")
 				next.ServeHTTP(w, r)
 				return
 			}
