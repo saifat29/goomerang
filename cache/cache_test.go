@@ -9,21 +9,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newTestKey(method, rawURL, encoding, language string) CacheKey {
-	req := httptest.NewRequest(method, rawURL, nil)
+func newTestKey(method, rawURL, encoding, language string) Key {
+	req := httptest.NewRequest(method, rawURL, http.NoBody)
 	if encoding != "" {
 		req.Header.Set("Accept-Encoding", encoding)
 	}
 	if language != "" {
 		req.Header.Set("Accept-Language", language)
 	}
-	return NewCacheKey(req)
+	return NewKeyFromRequest(req)
 }
 
 func TestCacheKeyString(t *testing.T) {
 	tests := []struct {
 		name string
-		key  CacheKey
+		key  Key
 		want string
 	}{
 		{
@@ -75,7 +75,7 @@ func TestCacheKeyHash(t *testing.T) {
 
 		tests := []struct {
 			name string
-			key  CacheKey
+			key  Key
 		}{
 			{
 				name: "different method",

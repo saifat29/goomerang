@@ -35,7 +35,7 @@ func TestMemoryLRUGetEmptyCache(t *testing.T) {
 	t.Run("returns nil for missing key", func(t *testing.T) {
 		cache := NewMemoryLRU(10, time.Hour)
 
-		got := cache.Get(CacheKey{Method: "GET", URL: "http://example.com/users"})
+		got := cache.Get(Key{Method: "GET", URL: "http://example.com/users"})
 
 		assert.Nil(t, got)
 		assert.Empty(t, cache.items, "cache should remain empty")
@@ -45,7 +45,7 @@ func TestMemoryLRUGetEmptyCache(t *testing.T) {
 	t.Run("returns nil on zero capacity cache", func(t *testing.T) {
 		cache := NewMemoryLRU(0, time.Hour)
 
-		got := cache.Get(CacheKey{Method: "GET", URL: "http://example.com/users"})
+		got := cache.Get(Key{Method: "GET", URL: "http://example.com/users"})
 
 		assert.Nil(t, got)
 	})
@@ -53,7 +53,7 @@ func TestMemoryLRUGetEmptyCache(t *testing.T) {
 
 func TestMemoryLRUSetThenGet(t *testing.T) {
 	cache := NewMemoryLRU(10, time.Hour)
-	key := CacheKey{Method: "GET", URL: "http://example.com/users", Encoding: "gzip", Language: "en-US"}
+	key := Key{Method: "GET", URL: "http://example.com/users", Encoding: "gzip", Language: "en-US"}
 	want := newTestEntry("users")
 
 	cache.Set(key, want)
@@ -70,9 +70,9 @@ func TestMemoryLRUSetThenGet(t *testing.T) {
 func TestMemoryLRUGetMissingKey(t *testing.T) {
 	cache := NewMemoryLRU(10, time.Hour)
 
-	cache.Set(CacheKey{Method: "GET", URL: "http://example.com/users"}, newTestEntry("users"))
+	cache.Set(Key{Method: "GET", URL: "http://example.com/users"}, newTestEntry("users"))
 
-	got := cache.Get(CacheKey{Method: "GET", URL: "http://example.com/orders"})
+	got := cache.Get(Key{Method: "GET", URL: "http://example.com/orders"})
 
 	assert.Nil(t, got, "Get should return nil for a key that was never set")
 	assert.Equal(t, 1, len(cache.items), "existing entry should be untouched")
@@ -81,7 +81,7 @@ func TestMemoryLRUGetMissingKey(t *testing.T) {
 func TestMemoryLRUGetEvictsExpiredEntry(t *testing.T) {
 	t.Run("evicts entry expired by entry TTL", func(t *testing.T) {
 		cache := NewMemoryLRU(10, time.Hour)
-		key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+		key := Key{Method: "GET", URL: "http://example.com/users"}
 
 		cache.Set(key, &Entry{
 			Headers:    http.Header{"Content-Type": {"text/plain"}},
@@ -101,7 +101,7 @@ func TestMemoryLRUGetEvictsExpiredEntry(t *testing.T) {
 
 	t.Run("evicts entry expired by global cache TTL", func(t *testing.T) {
 		cache := NewMemoryLRU(10, 30*time.Minute)
-		key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+		key := Key{Method: "GET", URL: "http://example.com/users"}
 
 		cache.Set(key, &Entry{
 			Headers:    http.Header{"Content-Type": {"text/plain"}},
@@ -121,7 +121,7 @@ func TestMemoryLRUGetEvictsExpiredEntry(t *testing.T) {
 
 func TestMemoryLRUGetNonResponseEntry(t *testing.T) {
 	cache := NewMemoryLRU(10, time.Hour)
-	key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+	key := Key{Method: "GET", URL: "http://example.com/users"}
 
 	cache.Set(key, newTestEntry("users"))
 	cache.items[key].Value = "not a entry"
@@ -131,7 +131,7 @@ func TestMemoryLRUGetNonResponseEntry(t *testing.T) {
 
 func TestMemoryLRUOverwriteSameKey(t *testing.T) {
 	cache := NewMemoryLRU(10, time.Hour)
-	key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+	key := Key{Method: "GET", URL: "http://example.com/users"}
 
 	first := newTestEntry("first")
 	second := newTestEntry("second")
@@ -149,9 +149,9 @@ func TestMemoryLRUOverwriteSameKey(t *testing.T) {
 func TestMemoryLRURecencyOrder(t *testing.T) {
 	cache := NewMemoryLRU(1000, time.Hour)
 
-	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
-	keyC := CacheKey{Method: "GET", URL: "http://example.com/c"}
+	keyA := Key{Method: "GET", URL: "http://example.com/a"}
+	keyB := Key{Method: "GET", URL: "http://example.com/b"}
+	keyC := Key{Method: "GET", URL: "http://example.com/c"}
 
 	entryA := newTestEntry("a")
 	entryB := newTestEntry("b")
@@ -288,8 +288,8 @@ func TestMemoryLRUConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			key := CacheKey{Method: "GET", URL: fmt.Sprintf("http://example.com/goroutine-%d", g)}
-			neighbor := CacheKey{Method: "GET", URL: fmt.Sprintf("http://example.com/goroutine-%d", (g+1)%goroutines)}
+			key := Key{Method: "GET", URL: fmt.Sprintf("http://example.com/goroutine-%d", g)}
+			neighbor := Key{Method: "GET", URL: fmt.Sprintf("http://example.com/goroutine-%d", (g+1)%goroutines)}
 			entry := newTestEntry(fmt.Sprintf("goroutine-%d", g))
 
 			for range iterations {
@@ -314,10 +314,10 @@ func TestMemoryLRUSetEvictsToRespectMaxSize(t *testing.T) {
 	t.Run("evicts least recently used entries until the new entry fits", func(t *testing.T) {
 		cache := NewMemoryLRU(70, time.Hour)
 
-		keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-		keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
-		keyC := CacheKey{Method: "GET", URL: "http://example.com/c"}
-		keyD := CacheKey{Method: "GET", URL: "http://example.com/d"}
+		keyA := Key{Method: "GET", URL: "http://example.com/a"}
+		keyB := Key{Method: "GET", URL: "http://example.com/b"}
+		keyC := Key{Method: "GET", URL: "http://example.com/c"}
+		keyD := Key{Method: "GET", URL: "http://example.com/d"}
 
 		bodyA := strings.Repeat("a", 20)
 		bodyB := strings.Repeat("b", 20)
@@ -348,10 +348,10 @@ func TestMemoryLRUSetEvictsToRespectMaxSize(t *testing.T) {
 	t.Run("keeps recently accessed entries over stale ones", func(t *testing.T) {
 		cache := NewMemoryLRU(70, time.Hour)
 
-		keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-		keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
-		keyC := CacheKey{Method: "GET", URL: "http://example.com/c"}
-		keyD := CacheKey{Method: "GET", URL: "http://example.com/d"}
+		keyA := Key{Method: "GET", URL: "http://example.com/a"}
+		keyB := Key{Method: "GET", URL: "http://example.com/b"}
+		keyC := Key{Method: "GET", URL: "http://example.com/c"}
+		keyD := Key{Method: "GET", URL: "http://example.com/d"}
 
 		entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
 		entryB := NewEntry(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
@@ -376,8 +376,8 @@ func TestMemoryLRUSetEvictsToRespectMaxSize(t *testing.T) {
 func TestMemoryLRUSetEvictsOnExactCapacityBoundary(t *testing.T) {
 	cache := NewMemoryLRU(46, time.Hour)
 
-	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+	keyA := Key{Method: "GET", URL: "http://example.com/a"}
+	keyB := Key{Method: "GET", URL: "http://example.com/b"}
 
 	entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
 	entryB := NewEntry(keyB, http.StatusOK, http.Header{}, make([]byte, 26), time.Hour)
@@ -394,8 +394,8 @@ func TestMemoryLRUSetEvictsOnExactCapacityBoundary(t *testing.T) {
 func TestMemoryLRUSetZeroCapacity(t *testing.T) {
 	cache := NewMemoryLRU(0, time.Hour)
 
-	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+	keyA := Key{Method: "GET", URL: "http://example.com/a"}
+	keyB := Key{Method: "GET", URL: "http://example.com/b"}
 
 	entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
 	entryB := NewEntry(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
@@ -416,8 +416,8 @@ func TestMemoryLRUSetZeroCapacity(t *testing.T) {
 func TestMemoryLRUSetOversizedEntry(t *testing.T) {
 	cache := NewMemoryLRU(10, time.Hour)
 
-	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+	keyA := Key{Method: "GET", URL: "http://example.com/a"}
+	keyB := Key{Method: "GET", URL: "http://example.com/b"}
 
 	entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
 	entryB := NewEntry(keyB, http.StatusOK, http.Header{}, make([]byte, 30), time.Hour)
@@ -436,8 +436,8 @@ func TestMemoryLRUSetOversizedEntry(t *testing.T) {
 func TestMemoryLRUSetZeroSizeEntry(t *testing.T) {
 	cache := NewMemoryLRU(10, time.Hour)
 
-	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-	keyEmpty := CacheKey{Method: "GET", URL: "http://example.com/empty"}
+	keyA := Key{Method: "GET", URL: "http://example.com/a"}
+	keyEmpty := Key{Method: "GET", URL: "http://example.com/empty"}
 
 	entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
 	resEmpty := NewEntry(keyEmpty, http.StatusOK, http.Header{}, []byte{}, time.Hour)
@@ -454,7 +454,7 @@ func TestMemoryLRUSetZeroSizeEntry(t *testing.T) {
 func TestMemoryLRUSetOverwriteAccounting(t *testing.T) {
 	t.Run("does not double count size when overwriting the same key", func(t *testing.T) {
 		cache := NewMemoryLRU(100, time.Hour)
-		key := CacheKey{Method: "GET", URL: "http://example.com/users"}
+		key := Key{Method: "GET", URL: "http://example.com/users"}
 
 		big := NewEntry(key, http.StatusOK, http.Header{}, make([]byte, 60), time.Hour)
 		small := NewEntry(key, http.StatusOK, http.Header{}, make([]byte, 10), time.Hour)
@@ -475,8 +475,8 @@ func TestMemoryLRUSetOverwriteAccounting(t *testing.T) {
 	t.Run("does not evict entries when the replaced key frees enough space", func(t *testing.T) {
 		cache := NewMemoryLRU(50, time.Hour)
 
-		keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-		keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+		keyA := Key{Method: "GET", URL: "http://example.com/a"}
+		keyB := Key{Method: "GET", URL: "http://example.com/b"}
 
 		entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
 		resB1 := NewEntry(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
@@ -496,9 +496,9 @@ func TestMemoryLRUSetOverwriteAccounting(t *testing.T) {
 func TestMemoryLRUGetExpiredReclaimsUsedSizeBusedSizeBytes(t *testing.T) {
 	cache := NewMemoryLRU(100, time.Hour)
 
-	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
-	keyC := CacheKey{Method: "GET", URL: "http://example.com/c"}
+	keyA := Key{Method: "GET", URL: "http://example.com/a"}
+	keyB := Key{Method: "GET", URL: "http://example.com/b"}
+	keyC := Key{Method: "GET", URL: "http://example.com/c"}
 
 	entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 60), time.Hour)
 	entryB := NewEntry(keyB, http.StatusOK, http.Header{}, make([]byte, 30), time.Hour)
@@ -525,8 +525,8 @@ func TestMemoryLRUGetExpiredReclaimsUsedSizeBusedSizeBytes(t *testing.T) {
 func TestMemoryLRUSweepSkipsCorruptedEntry(t *testing.T) {
 	cache := NewMemoryLRU(30, time.Hour)
 
-	keyA := CacheKey{Method: "GET", URL: "http://example.com/a"}
-	keyB := CacheKey{Method: "GET", URL: "http://example.com/b"}
+	keyA := Key{Method: "GET", URL: "http://example.com/a"}
+	keyB := Key{Method: "GET", URL: "http://example.com/b"}
 
 	entryA := NewEntry(keyA, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
 	entryB := NewEntry(keyB, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)
@@ -558,7 +558,7 @@ func TestMemoryLRUConcurrentEviction(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			key := CacheKey{Method: "GET", URL: fmt.Sprintf("http://example.com/evict-%d", g)}
+			key := Key{Method: "GET", URL: fmt.Sprintf("http://example.com/evict-%d", g)}
 
 			for range iterations {
 				entry := NewEntry(key, http.StatusOK, http.Header{}, make([]byte, 20), time.Hour)

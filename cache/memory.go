@@ -11,7 +11,7 @@ import (
 // MemoryLRU is an in-memory cache that supports eviction based on LRU and TTL.
 type MemoryLRU struct {
 	mu       sync.Mutex
-	items    map[CacheKey]*list.Element
+	items    map[Key]*list.Element
 	rankList *list.List
 
 	maxSizeBytes  int
@@ -22,7 +22,7 @@ type MemoryLRU struct {
 // NewMemoryLRU initialises the LRU cache with the given max-size and ttl.
 func NewMemoryLRU(maxSizeBytes int, ttl time.Duration) *MemoryLRU {
 	return &MemoryLRU{
-		items:    make(map[CacheKey]*list.Element),
+		items:    make(map[Key]*list.Element),
 		rankList: list.New(),
 
 		maxSizeBytes:  maxSizeBytes,
@@ -34,7 +34,7 @@ func NewMemoryLRU(maxSizeBytes int, ttl time.Duration) *MemoryLRU {
 // Get retrieves the item from the cache and updates it's access time (TTL).
 // It also performes passive TTL-eviction and promotes the accessed item to the
 // front of the rank.
-func (c *MemoryLRU) Get(key CacheKey) *Entry {
+func (c *MemoryLRU) Get(key Key) *Entry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -68,7 +68,7 @@ func (c *MemoryLRU) Get(key CacheKey) *Entry {
 // rather than updating it's content it is deleted and inserted.
 // In case of insufficient space in the cache, first sweep is performed, and
 // then entry is inserted.
-func (c *MemoryLRU) Set(key CacheKey, et *Entry) {
+func (c *MemoryLRU) Set(key Key, et *Entry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

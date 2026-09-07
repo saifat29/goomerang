@@ -34,7 +34,7 @@ func New(cfg *config.HTTPCache, c *cache.MemoryLRU) middleware.Middleware {
 				return
 			}
 
-			cacheKey := cache.NewCacheKey(r)
+			cacheKey := cache.NewKeyFromRequest(r)
 
 			// HIT: Serving response from cache.
 			if entry := c.Get(cacheKey); entry != nil {

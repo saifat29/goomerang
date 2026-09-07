@@ -10,19 +10,19 @@ import (
 	"github.com/cespare/xxhash/v2"
 )
 
-// CacheKey is a composite key which will be used to cache upstream responses.
-type CacheKey struct {
+// Key is a composite key which will be used to cache upstream responses.
+type Key struct {
 	Method   string
 	URL      string
 	Encoding string
 	Language string
 }
 
-// NewCacheKey extracts relevant fields from the http.Request and creates the CacheKey.
-func NewCacheKey(r *http.Request) CacheKey {
+// NewKeyFromRequest extracts relevant fields from the http.Request and creates the CacheKey.
+func NewKeyFromRequest(r *http.Request) Key {
 	normalisedURL := normaliseURL(r.URL.String())
 
-	return CacheKey{
+	return Key{
 		Method:   r.Method,
 		URL:      normalisedURL,
 		Encoding: r.Header.Get("Accept-Encoding"),
@@ -31,13 +31,13 @@ func NewCacheKey(r *http.Request) CacheKey {
 }
 
 // String representation of the key. But using `Hash()` key is recommended.
-func (k CacheKey) String() string {
+func (k Key) String() string {
 	return fmt.Sprintf("%s%s%s%s", k.Method, k.URL, k.Encoding, k.Language)
 }
 
 // Hash uses `xxhash` for hashing which generates fixed length string.
 // This is recommended over using plain `String()` output as key.
-func (k CacheKey) Hash() string {
+func (k Key) Hash() string {
 	hash := xxhash.Sum64String(fmt.Sprintf("%s%s%s%s", k.Method, k.URL, k.Encoding, k.Language))
 	return fmt.Sprintf("%x", hash)
 }
@@ -57,7 +57,7 @@ func normaliseURL(rawURL string) string {
 
 // Entry contains the response fields to be cached.
 type Entry struct {
-	Key        CacheKey
+	Key        Key
 	Headers    http.Header
 	Body       []byte
 	StatusCode int
@@ -66,7 +66,7 @@ type Entry struct {
 }
 
 // NewEntry accepts the CacheKey and various response fields to create a new entry for caching.
-func NewEntry(key CacheKey, code int, header http.Header, body []byte, ttl time.Duration) *Entry {
+func NewEntry(key Key, code int, header http.Header, body []byte, ttl time.Duration) *Entry {
 	bodyCopy := make([]byte, len(body))
 	copy(bodyCopy, body)
 
