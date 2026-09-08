@@ -196,11 +196,24 @@ func (u *Upstream) SetDefaults() {
 	}
 }
 
+// Load balancing algorithms.
+const (
+	StrategyRoundRobin = "round_robin"
+	StrategyIPHash     = "ip_hash"
+)
+
 // Proxy contains the configuration fields for the proxy.
 type Proxy struct {
-	Path        string        `json:"path" yaml:"path"`
-	Upstream    *URL          `json:"upstream" yaml:"upstream"`
-	Middlewares []*Middleware `json:"middlewares" yaml:"middlewares"`
+	Path        string            `json:"path" yaml:"path"`
+	Strategy    string            `json:"strategy" yaml:"strategy"`
+	Upstreams   []*UpstreamServer `json:"upstreams" yaml:"upstreams"`
+	Middlewares []*Middleware     `json:"middlewares" yaml:"middlewares"`
+}
+
+// UpstreamServer contains the upstream URL and it's settings.
+type UpstreamServer struct {
+	URL    *URL `json:"url" yaml:"url"`
+	Weight int  `json:"weight" yaml:"weight"`
 }
 
 // URL contains a parsed URL.

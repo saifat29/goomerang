@@ -10,6 +10,7 @@
 
 - **Multi-upstream routing** - route requests to different upstream servers based on path prefixes (longest match wins)
 - **In-memory LRU caching** - cache GET/HEAD responses with configurable global TTL and max size, and per-route TTL
+- **Load balancing** - load balancing between multiple upstream servers, supported strategies: weighted `round_robin` (default) and `ip_hash`
 - **Pluggable middleware system** - onion-style middleware chain, configurable per route with individual configs
 - **Prefix stripping** - `strip_prefix` middleware removes path prefixes before forwarding to upstream
 - **GeoIP lookup** - `geoip` middleware injects geoip headers using an embedded [MaxMind GeoLite2-City](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) database
@@ -101,8 +102,13 @@ upstream:
   idle_conn_timeout: 90s
 
 proxy:
-  - path: "/data/json"
-    upstream: "http://httpbin.org"
+  - path: "/data"
+    strategy: round_robin   # round_robin, ip_hash
+    upstreams:
+      - url: "http://httpbin.org"
+        weight: 1
+      - url: "http://httpbingo.org"
+        weight: 2
     middlewares:
       - strip_prefix:
           prefix: "/data"
@@ -112,14 +118,16 @@ proxy:
           ttl: 3s
 
   - path: "/ip"
-    upstream: "http://httpbingo.org"
+    upstreams:
+      - url: "http://httpbingo.org"
     middlewares:
       - logger: {}
       - http_cache:
           ttl: 10s
 
   - path: "/whoami"
-    upstream: "http://whoami.localhost:8888"
+    upstreams:
+      - url: "http://whoami.localhost:8888"
     middlewares:
       - strip_prefix:
           prefix: "/whoami"
@@ -130,6 +138,26 @@ proxy:
 All fields have sensible defaults. Any omitted field will use its default value.
 
 > Note: All fields have defaults, EXCEPT the `proxy` block and it's children. You'll have to configure the proxy upstream servers for the reverse proxy to work.
+
+## Load Balancing
+
+Each proxy `path` can list multiple upstreams. For every incoming request the `strategy` selects an upstream url and sends the request.
+
+| Strategy | Description |
+|----------|-------------|
+| `round_robin` | Weighted round-robin, sends requests as per weight, more weight, more request |
+| `ip_hash` | client IP is hashed using `xxhash`. The same client IP always lands on the same upstream server (sticky sessions) |
+
+```yaml
+proxy:
+  - path: "/data"
+    strategy: round_robin   # ip_hash
+    upstreams:
+      - url: "http://httpbin.org"
+        weight: 1   # weight is ignored in ip_hash
+      - url: "http://httpbingo.org"
+        weight: 2
+```
 
 ## Middlewares
 
@@ -187,7 +215,7 @@ The `geoip` middleware injects the following headers into the request:
 
 ## How it works
 
-Incoming requests are matched against configured paths using longest prefix match. The matched route determines the middleware chain to execute and the upstream to forward to.
+Incoming requests are matched against configured paths using longest prefix match. The matched route determines the middleware chain to execute and the load balancing strategy used to pick an upstream.
 
 The request flows through the middleware chain in order, then gets forwarded to the upstream server. The response travels back through the chain in reverse order (_like a boomerang, hence the name_).
 
@@ -197,6 +225,7 @@ Client -> :8080/hello/whoami
   -> [geoip]                 -> injects X-GeoIP-* headers
   -> [logger]                -> logs request
   -> [http_cache]            -> serves from cache (HIT) or forwards upstream (MISS)
+  -> [balancer]              -> picks upstream (round_robin or ip_hash)
   -> [upstream server]
 ```
 

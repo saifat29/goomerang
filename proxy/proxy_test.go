@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/saifat29/goomerang/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -251,9 +252,9 @@ func TestFindRoute(t *testing.T) {
 
 	p := &ReverseProxy{
 		routes: []Route{
-			{Path: "/api", UpstreamURL: upstreamA},
-			{Path: "/api/v1", UpstreamURL: upstreamB},
-			{Path: "/static", UpstreamURL: upstreamC},
+			{path: "/api", balancer: NewWeightedRoundRobin(weightedURLs(upstreamA))},
+			{path: "/api/v1", balancer: NewWeightedRoundRobin(weightedURLs(upstreamB))},
+			{path: "/static", balancer: NewWeightedRoundRobin(weightedURLs(upstreamC))},
 		},
 	}
 
@@ -297,8 +298,20 @@ func TestFindRoute(t *testing.T) {
 				assert.Nil(t, got)
 			} else {
 				require.NotNil(t, got)
-				assert.Equal(t, tt.wantHost, got.UpstreamURL.Host)
+				assert.Equal(t, tt.wantHost, got.balancer.Select(nil).Host)
 			}
 		})
 	}
+}
+
+func weightedURLs(urls ...*url.URL) []*config.UpstreamServer {
+	weighted := make([]*config.UpstreamServer, len(urls))
+
+	for i, u := range urls {
+		weighted[i] = &config.UpstreamServer{
+			URL: &config.URL{URL: u},
+		}
+	}
+
+	return weighted
 }

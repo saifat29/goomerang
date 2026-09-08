@@ -52,8 +52,18 @@ func Validate(cfg *Config) error {
 			if proxy.Path == "" {
 				return fmt.Errorf("proxy[%d].path is required", i)
 			}
-			if proxy.Upstream == nil || proxy.Upstream.URL == nil {
-				return fmt.Errorf("proxy[%d].upstream URL is required", i)
+			if proxy.Strategy != "" &&
+				proxy.Strategy != StrategyRoundRobin &&
+				proxy.Strategy != StrategyIPHash {
+				return fmt.Errorf("proxy[%d].balancer %q is not supported", i, proxy.Strategy)
+			}
+			if len(proxy.Upstreams) == 0 {
+				return fmt.Errorf("proxy[%d].upstreams is required", i)
+			}
+			for j, upstream := range proxy.Upstreams {
+				if upstream.URL == nil || upstream.URL.URL == nil {
+					return fmt.Errorf("proxy[%d].upstreams[%d].url is required", i, j)
+				}
 			}
 		}
 	}

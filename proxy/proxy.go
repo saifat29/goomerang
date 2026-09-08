@@ -66,9 +66,15 @@ func (p *ReverseProxy) upstreamHandler(route *Route) http.HandlerFunc {
 
 		removeHopHeaders(newReq.Header)
 
-		newReq.URL = buildUpstreamURL(newReq.URL, route.UpstreamURL)
+		upstreamURL := route.balancer.Select(r)
+		log.Debug().
+			Str("scheme", upstreamURL.Scheme).
+			Str("upstream", upstreamURL.Host).
+			Msg("selected upstream")
+
+		newReq.URL = buildUpstreamURL(newReq.URL, upstreamURL)
 		newReq.RequestURI = ""
-		newReq.Host = route.UpstreamURL.Host
+		newReq.Host = upstreamURL.Host
 
 		clientIP, _, err := net.SplitHostPort(newReq.RemoteAddr)
 		if err == nil {
@@ -107,9 +113,9 @@ func (p *ReverseProxy) findRoute(path string) *Route {
 	var bestLen int
 
 	for i := range p.routes {
-		if p.routes[i].pathMatched(path) && len(p.routes[i].Path) > bestLen {
+		if p.routes[i].pathMatched(path) && len(p.routes[i].path) > bestLen {
 			bestMatch = &p.routes[i]
-			bestLen = len(p.routes[i].Path)
+			bestLen = len(p.routes[i].path)
 		}
 	}
 

@@ -14,17 +14,17 @@ import (
 
 func TestFromConfig(t *testing.T) {
 	cfg := []*config.Proxy{
-		{Path: "/api", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}}},
-		{Path: "/static", Upstream: &config.URL{URL: &url.URL{Scheme: "http", Host: "other.com"}}},
+		{Path: "/api", Upstreams: weightedURLs(&url.URL{Scheme: "http", Host: "example.com"})},
+		{Path: "/static", Upstreams: weightedURLs(&url.URL{Scheme: "http", Host: "other.com"})},
 	}
 
 	routes := FromConfig(cfg, nil)
 
 	require.Len(t, routes, 2)
-	assert.Equal(t, "/api", routes[0].Path)
-	assert.Equal(t, "example.com", routes[0].UpstreamURL.Host)
-	assert.Equal(t, "/static", routes[1].Path)
-	assert.Equal(t, "other.com", routes[1].UpstreamURL.Host)
+	assert.Equal(t, "/api", routes[0].path)
+	assert.Equal(t, "example.com", routes[0].balancer.Select(nil).Host)
+	assert.Equal(t, "/static", routes[1].path)
+	assert.Equal(t, "other.com", routes[1].balancer.Select(nil).Host)
 }
 
 func TestFromConfigEmpty(t *testing.T) {
@@ -46,7 +46,7 @@ func TestFromConfigWithMiddlewares(t *testing.T) {
 	cfg := []*config.Proxy{
 		{
 			Path:        "/api",
-			Upstream:    &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}},
+			Upstreams:   weightedURLs(&url.URL{Scheme: "http", Host: "example.com"}),
 			Middlewares: []*config.Middleware{{Logger: &config.Logger{}}},
 		},
 	}
@@ -72,7 +72,7 @@ func TestFromConfigUnknownMiddleware(t *testing.T) {
 	cfg := []*config.Proxy{
 		{
 			Path:        "/api",
-			Upstream:    &config.URL{URL: &url.URL{Scheme: "http", Host: "example.com"}},
+			Upstreams:   weightedURLs(&url.URL{Scheme: "http", Host: "example.com"}),
 			Middlewares: []*config.Middleware{{}},
 		},
 	}
@@ -90,7 +90,7 @@ func TestRouteHandler(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	route := &Route{Path: "/api"}
+	route := &Route{path: "/api"}
 	handler := route.Handler(upstream)
 
 	req := httptest.NewRequest(http.MethodGet, "/api", http.NoBody)
@@ -148,7 +148,7 @@ func TestPathMatched(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &Route{Path: tt.route}
+			r := &Route{path: tt.route}
 			got := r.pathMatched(tt.path)
 
 			assert.Equal(t, tt.want, got)

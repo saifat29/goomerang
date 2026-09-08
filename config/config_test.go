@@ -142,10 +142,24 @@ func TestMerge_FullUserValues(t *testing.T) {
 func TestMerge_ProxyReplaces(t *testing.T) {
 	base := Default()
 	base.Proxy = []*Proxy{
-		{Path: "/old", Upstream: &URL{URL: &url.URL{Scheme: "http", Host: "old.example.com"}}},
+		{
+			Path: "/old",
+			Upstreams: []*UpstreamServer{
+				{
+					URL: &URL{URL: &url.URL{Scheme: "http", Host: "old.example.com"}},
+				},
+			},
+		},
 	}
 
-	userProxy := &Proxy{Path: "/new", Upstream: &URL{URL: &url.URL{Scheme: "http", Host: "new.example.com"}}}
+	userProxy := &Proxy{
+		Path: "/new",
+		Upstreams: []*UpstreamServer{
+			{
+				URL: &URL{URL: &url.URL{Scheme: "http", Host: "new.example.com"}},
+			},
+		},
+	}
 	user := &Config{Proxy: []*Proxy{userProxy}}
 
 	result := Merge(base, user)
@@ -231,7 +245,13 @@ func TestValidate_NegativeMaxIdleConns(t *testing.T) {
 func TestValidate_ProxyMissingPath(t *testing.T) {
 	cfg := Default()
 	cfg.Proxy = []*Proxy{
-		{Upstream: &URL{URL: &url.URL{Scheme: "http", Host: "example.com"}}},
+		{
+			Upstreams: []*UpstreamServer{
+				{
+					URL: &URL{URL: &url.URL{Scheme: "http", Host: "example.com"}},
+				},
+			},
+		},
 	}
 
 	err := Validate(cfg)
@@ -247,7 +267,7 @@ func TestValidate_ProxyMissingUpstream(t *testing.T) {
 
 	err := Validate(cfg)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "upstream URL is required")
+	assert.Contains(t, err.Error(), "upstreams is required")
 }
 
 func TestLoad_FullYAML(t *testing.T) {
@@ -268,7 +288,11 @@ upstream:
   max_idle_conns: 50
 proxy:
   - path: "/api"
-    upstream: "http://example.com"
+    strategy: ip_hash
+    upstreams:
+      - url: "http://example.com"
+        weight: 3
+      - url: "http://other.com"
     middlewares:
       - logger: {}
 `
@@ -290,7 +314,12 @@ proxy:
 	assert.Equal(t, 50, cfg.Upstream.MaxIdleConns)
 	require.Len(t, cfg.Proxy, 1)
 	assert.Equal(t, "/api", cfg.Proxy[0].Path)
-	assert.Equal(t, "http://example.com", cfg.Proxy[0].Upstream.String())
+	assert.Equal(t, StrategyIPHash, cfg.Proxy[0].Strategy)
+	require.Len(t, cfg.Proxy[0].Upstreams, 2)
+	assert.Equal(t, "http://example.com", cfg.Proxy[0].Upstreams[0].URL.String())
+	assert.Equal(t, 3, cfg.Proxy[0].Upstreams[0].Weight)
+	assert.Equal(t, "http://other.com", cfg.Proxy[0].Upstreams[1].URL.String())
+	assert.Equal(t, 0, cfg.Proxy[0].Upstreams[1].Weight)
 	require.Len(t, cfg.Proxy[0].Middlewares, 1)
 	assert.NotNil(t, cfg.Proxy[0].Middlewares[0].Logger)
 }
@@ -344,7 +373,8 @@ server:
   read_timeout: -1s
 proxy:
   - path: "/test"
-    upstream: "http://example.com"
+    upstreams:
+      - url: "http://example.com"
 `
 	path := writeTempYAML(t, content)
 	defer os.Remove(path)
@@ -364,7 +394,8 @@ func TestLoad_InvalidProxy(t *testing.T) {
 	content := `
 proxy:
   - path: ""
-    upstream: "http://example.com"
+    upstreams:
+      - url: "http://example.com"
 `
 	path := writeTempYAML(t, content)
 	defer os.Remove(path)
@@ -384,7 +415,7 @@ proxy:
 
 	_, err := Load(path)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "upstream URL is required")
+	assert.Contains(t, err.Error(), "upstreams is required")
 }
 
 func writeTempYAML(t *testing.T, content string) string {
