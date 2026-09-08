@@ -22,6 +22,11 @@
 - **X-Cache-Status** - response header showing `HIT`, `MISS`, or `BYPASS`
 - **Embedded GeoIP database** - GeoIP database is compiled into the binary, no external files needed at runtime
 
+## Architecture
+<p align="left">
+  <img src="assets/goomerang-arch.png" alt="Goomerang" width="100%">
+</p>
+
 ## Quick Start
 
 ### Download
